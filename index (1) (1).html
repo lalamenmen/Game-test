@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Cyber Grapple: Overdrive & Shop</title>
+  <style>
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+    body { margin: 0; overflow: hidden; background: #050202; font-family: 'Segoe UI', sans-serif; touch-action: none; }
+    canvas { display: block; }
+
+    /* Crosshair */
+    #crosshair {
+      position: absolute; top: 50%; left: 50%; width: 10px; height: 10px;
+      margin: -5px 0 0 -5px; border: 2px solid #00f0ff; border-radius: 50%;
+      pointer-events: none; z-index: 5; box-shadow: 0 0 8px #00f0ff;
+    }
+
+    /* Screen Touch Area for Camera Look */
+    #touchLookArea { position: absolute; inset: 0; z-index: 10; }
+
+    /* Top Progress Bar & HUD */
+    #topBar {
+      position: absolute; top: 15px; left: 50%; transform: translateX(-50%);
+      width: 260px; text-align: center; z-index: 20; pointer-events: none; display: none;
+    }
+    .progress-label { color: #00f0ff; font-weight: bold; font-size: 12px; margin-bottom: 4px; text-shadow: 0 0 8px #00f0ff; }
+    .progress-track {
+      width: 100%; height: 12px; background: rgba(0, 0, 0, 0.6);
+      border: 1px solid #00f0ff; border-radius: 6px; overflow: hidden;
+      box-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+    }
+    .progress-fill { width: 0%; height: 100%; background: linear-gradient(90deg, #00f0ff, #00ffaa); transition: width 0.1s ease-out; }
+
+    #hud {
+      position: absolute; top: 15px; left: 15px; color: #fff;
+      font-weight: bold; font-size: 13px; text-shadow: 0 0 10px #ff3300; z-index: 25;
+      pointer-events: none; display: none;
+    }
+    .hud-title { font-size: 16px; color: #ff3300; letter-spacing: 1px; }
+    .lava-warning { color: #ff5500; font-size: 11px; animation: pulse 1s infinite alternate; }
+
+    #hudLobbyBtn {
+      margin-top: 8px; padding: 6px 14px; background: rgba(255, 51, 0, 0.25);
+      border: 1px solid #ff3300; color: #fff; font-weight: bold; border-radius: 12px;
+      font-size: 11px; pointer-events: auto; touch-action: manipulation;
+      box-shadow: 0 0 10px rgba(255, 51, 0, 0.4);
+    }
+    #hudLobbyBtn:active { transform: scale(0.92); }
+
+    @keyframes pulse {
+      from { opacity: 0.6; }
+      to { opacity: 1; text-shadow: 0 0 12px #ff1100; }
+    }
+
+    /* Joystick Controls */
+    #joystickZone {
+      position: absolute; bottom: 30px; left: 25px; width: 120px; height: 120px;
+      border: 2px dashed rgba(255, 85, 0, 0.5); border-radius: 50%;
+      background: rgba(10, 0, 0, 0.4); backdrop-filter: blur(4px);
+      pointer-events: auto; z-index: 25; touch-action: none;
+    }
+    #joystickKnob {
+      position: absolute; top: 35px; left: 35px; width: 50px; height: 50px;
+      background: #ff5500; border-radius: 50%; pointer-events: none;
+      box-shadow: 0 0 12px #ff5500;
+    }
+    
+    #actionBtns {
+      position: absolute; bottom: 30px; right: 25px; display: flex; gap: 15px; align-items: flex-end; z-index: 25;
+    }
+    .btn {
+      width: 75px; height: 75px; border-radius: 50%; border: 2px solid #00f0ff;
+      display: flex; align-items: center; justify-content: center;
+      color: white; font-weight: bold; font-size: 13px; background: rgba(5, 10, 25, 0.85);
+      box-shadow: 0 0 15px rgba(0, 240, 255, 0.3); backdrop-filter: blur(4px);
+      touch-action: manipulation;
+    }
+    .btn:active { transform: scale(0.92); }
+    #grappleBtn { background: rgba(0, 240, 255, 0.3); width: 90px; height: 90px; font-size: 15px; border-color: #00f0ff; }
+    #jumpBtn { background: rgba(255, 85, 0, 0.35); border-color: #ff5500; box-shadow: 0 0 15px rgba(255, 85, 0, 0.4); }
+
+    /* UI Overlay Frames */
+    .overlay {
+      position: absolute; inset: 0; background: rgba(10, 2, 2, 0.94);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      z-index: 30; backdrop-filter: blur(8px); color: white; padding: 15px;
+    }
+    h1 { font-size: 28px; color: #ff3300; margin: 0 0 5px 0; text-shadow: 0 0 18px #ff3300; letter-spacing: 2px; }
+    p { color: #aaa; margin: 0 0 15px 0; font-size: 12px; text-align: center; max-width: 85%; }
+    
+    .coin-display {
+      font-size: 16px; font-weight: bold; color: #ffd700; text-shadow: 0 0 10px #ffd700;
+      margin-bottom: 12px; background: rgba(255, 215, 0, 0.1); padding: 6px 16px; border-radius: 20px;
+      border: 1px solid #ffd700;
+    }
+
+    .level-select { display: flex; gap: 8px; margin-bottom: 15px; flex-wrap: wrap; justify-content: center; }
+    .lvl-btn {
+      padding: 10px 14px; background: rgba(255, 51, 0, 0.1); border: 2px solid #ff3300;
+      color: white; font-weight: bold; border-radius: 8px; font-size: 13px;
+    }
+    .lvl-btn.active { background: #ff3300; color: #000; box-shadow: 0 0 15px #ff3300; }
+
+    .menu-row { display: flex; gap: 10px; margin-bottom: 15px; }
+    .primary-btn {
+      padding: 14px 32px; font-size: 16px; font-weight: bold; background: #00f0ff;
+      border: none; color: #000; border-radius: 25px; box-shadow: 0 0 18px #00f0ff;
+      letter-spacing: 1px;
+    }
+    .secondary-btn {
+      padding: 14px 24px; font-size: 16px; font-weight: bold; background: transparent;
+      border: 2px solid #ffd700; color: #ffd700; border-radius: 25px; box-shadow: 0 0 12px rgba(255, 215, 0, 0.3);
+    }
+
+    /* Shop Modal */
+    #shopScreen { display: none; }
+    .shop-tabs { display: flex; gap: 10px; margin-bottom: 12px; }
+    .tab-btn {
+      padding: 8px 16px; background: rgba(255,255,255,0.08); border: 1px solid #00f0ff;
+      color: #00f0ff; font-weight: bold; border-radius: 6px; font-size: 12px;
+    }
+    .tab-btn.active { background: #00f0ff; color: #000; }
+
+    .shop-items {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 340px;
+      max-height: 230px; overflow-y: auto; padding-right: 5px; margin-bottom: 15px;
+    }
+    .shop-card {
+      background: rgba(20, 20, 35, 0.8); border: 1px solid rgba(0, 240, 255, 0.3);
+      border-radius: 8px; padding: 10px; text-align: center; display: flex;
+      flex-direction: column; align-items: center; gap: 6px;
+    }
+    .shop-card.equipped { border-color: #00ffaa; box-shadow: 0 0 10px rgba(0,255,170,0.4); }
+    .item-name { font-weight: bold; font-size: 12px; color: #fff; }
+    .item-btn {
+      padding: 6px 12px; font-size: 11px; font-weight: bold; border: none;
+      border-radius: 12px; background: #00f0ff; color: #000; width: 100%;
+    }
+    .item-btn.buy { background: #ffd700; }
+    .item-btn.equipped-btn { background: #00ffaa; color: #000; }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+<div id="crosshair"></div>
+
+<!-- Progress Bar & HUD -->
+<div id="topBar">
+  <div class="progress-label" id="progressText">0% COMPLETED</div>
+  <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+</div>
+
+<div id="hud">
+  <div class="hud-title" id="hudLevel">LEVEL 1</div>
+  <div class="lava-warning">⚠ DANGER: THE FLOOR IS LAVA!</div>
+  <div>GOAL DISTANCE: <span id="hudDist">0</span>m</div>
+  <button id="hudLobbyBtn" onclick="returnToLobby()">🏠 LOBBY</button>
+</div>
+
+<!-- Touch Look Area -->
+<div id="touchLookArea"></div>
+
+<!-- Touch Joystick Zone -->
+<div id="joystickZone"><div id="joystickKnob"></div></div>
+
+<div id="actionBtns">
+  <div class="btn" id="jumpBtn">JUMP</div>
+  <div class="btn" id="grappleBtn">GRAPPLE</div>
+</div>
+
+<!-- Main Lobby Modal -->
+<div id="lobbyScreen" class="overlay">
+  <h1>CYBER PARKOUR</h1>
+  <p>Grapple across floating neon structures! Avoid the lava floor and collect coins to unlock skins.</p>
+  
+  <div class="coin-display">COINS: <span id="lobbyCoins">0</span> 🪙</div>
+
+  <div class="level-select">
+    <button class="lvl-btn active" onclick="selectLevel(0)">LVL 1</button>
+    <button class="lvl-btn" onclick="selectLevel(1)">LVL 2</button>
+    <button class="lvl-btn" onclick="selectLevel(2)">LVL 3</button>
+    <button class="lvl-btn" onclick="selectLevel(3)">LVL 4</button>
+    <button class="lvl-btn" onclick="selectLevel(4)">LVL 5</button>
+  </div>
+
+  <div class="menu-row">
+    <button class="primary-btn" onclick="startGame()">PLAY</button>
+    <button class="secondary-btn" onclick="openShop()">SHOP 🛒</button>
+  </div>
+</div>
+
+<!-- Shop Modal -->
+<div id="shopScreen" class="overlay">
+  <h1 style="color:#ffd700; text-shadow:0 0 15px #ffd700;">CYBER SHOP</h1>
+  <div class="coin-display">COINS: <span id="shopCoins">0</span> 🪙</div>
+
+  <div class="shop-tabs">
+    <button class="tab-btn active" id="gunTabBtn" onclick="switchShopTab('guns')">GUN SKINS</button>
+    <button class="tab-btn" id="ropeTabBtn" onclick="switchShopTab('ropes')">ROPE SKINS</button>
+  </div>
+
+  <div class="shop-items" id="shopGrid"></div>
+
+  <button class="primary-btn" style="background:#ff3300; color:#fff; box-shadow:0 0 15px #ff3300;" onclick="closeShop()">BACK</button>
+</div>
+
+<!-- Victory Modal -->
+<div id="victoryScreen" class="overlay" style="display: none;">
+  <h1 style="color: #00ffaa; text-shadow: 0 0 20px #00ffaa;">STAGE SURVIVED!</h1>
+  <p>You earned <strong style="color:#ffd700;">+100 Coins</strong>!</p>
+  <div class="menu-row">
+    <button class="primary-btn" style="background:#00ffaa; color:#000; box-shadow:0 0 20px #00ffaa;" onclick="nextLevel()">NEXT LEVEL</button>
+    <button class="secondary-btn" onclick="returnToLobby()">LOBBY 🏠</button>
+  </div>
+</div>
+
+<script>
+  // --- Game State & Save Data ---
+  let coins = parseInt(localStorage.getItem('cyber_coins') || '0');
+  let unlockedSkins = JSON.parse(localStorage.getItem('cyber_unlocked_skins') || '["gun_default", "rope_default"]');
+  let equippedGun = localStorage.getItem('cyber_equipped_gun') || 'gun_default';
+  let equippedRope = localStorage.getItem('cyber_equipped_rope') || 'rope_default';
+
+  function saveUserData() {
+    localStorage.setItem('cyber_coins', coins.toString());
+    localStorage.setItem('cyber_unlocked_skins', JSON.stringify(unlockedSkins));
+    localStorage.setItem('cyber_equipped_gun', equippedGun);
+    localStorage.setItem('cyber_equipped_rope', equippedRope);
+    updateCoinDisplays();
+  }
+
+  function updateCoinDisplays() {
+    document.getElementById('lobbyCoins').innerText = coins;
+    document.getElementById('shopCoins').innerText = coins;
+  }
+
+  // --- Shop Database ---
+  const gunCatalog = [
+    { id: 'gun_default', name: 'Cyber Cyan', price: 0, color: 0x00f0ff },
+    { id: 'gun_gold', name: 'Golden Dragon', price: 150, color: 0xffd700 },
+    { id: 'gun_crimson', name: 'Crimson Lava', price: 300, color: 0xff1100 },
+    { id: 'gun_void', name: 'Void Purple', price: 500, color: 0xaa00ff }
+  ];
+
+  const ropeCatalog = [
+    { id: 'rope_default', name: 'Laser Blue', price: 0, color: 0x00f0ff },
+    { id: 'rope_gold', name: 'Solar Tether', price: 150, color: 0xffd700 },
+    { id: 'rope_plasma', name: 'Plasma Fire', price: 300, color: 0xff1100 },
+    { id: 'rope_neon', name: 'Neon Violet', price: 500, color: 0xaa00ff }
+  ];
+
+  let currentTab = 'guns';
+
+  function switchShopTab(tab) {
+    currentTab = tab;
+    document.getElementById('gunTabBtn').classList.toggle('active', tab === 'guns');
+    document.getElementById('ropeTabBtn').classList.toggle('active', tab === 'ropes');
+    renderShopGrid();
+  }
+
+  function renderShopGrid() {
+    const grid = document.getElementById('shopGrid');
+    grid.innerHTML = '';
+    const items = currentTab === 'guns' ? gunCatalog : ropeCatalog;
+
+    items.forEach(item => {
+      const isUnlocked = unlockedSkins.includes(item.id);
+      const isEquipped = (currentTab === 'guns' ? equippedGun : equippedRope) === item.id;
+
+      const card = document.createElement('div');
+      card.className = `shop-card ${isEquipped ? 'equipped' : ''}`;
+      
+      let btnHtml = '';
+      if (isEquipped) {
+        btnHtml = `<button class="item-btn equipped-btn">EQUIPPED</button>`;
+      } else if (isUnlocked) {
+        btnHtml = `<button class="item-btn" onclick="equipItem('${item.id}')">EQUIP</button>`;
+      } else {
+        btnHtml = `<button class="item-btn buy" onclick="buyItem('${item.id}', ${item.price})">BUY ${item.price}🪙</button>`;
+      }
+
+      card.innerHTML = `
+        <div class="item-name">${item.name}</div>
+        <div style="width:24px; height:24px; border-radius:50%; background:#${item.color.toString(16).padStart(6,'0')}; border:1px solid #fff;"></div>
+        ${btnHtml}
+      `;
+      grid.appendChild(card);
+    });
+  }
+
+  function buyItem(id, price) {
+    if (coins >= price) {
+      coins -= price;
+      unlockedSkins.push(id);
+      equipItem(id);
+    } else {
+      alert("Not enough coins! Complete levels to earn more.");
+    }
+  }
+
+  function equipItem(id) {
+    if (currentTab === 'guns') equippedGun = id;
+    else equippedRope = id;
+    saveUserData();
+    applyEquippedSkins();
+    renderShopGrid();
+  }
+
+  function openShop() {
+    document.getElementById('lobbyScreen').style.display = 'none';
+    document.getElementById('shopScreen').style.display = 'flex';
+    updateCoinDisplays();
+    renderShopGrid();
+  }
+
+  function closeShop() {
+    document.getElementById('shopScreen').style.display = 'none';
+    document.getElementById('lobbyScreen').style.display = 'flex';
+  }
+
+  // --- Audio Synthesizer ---
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  function playSound(type) {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+
+    if (type === 'lava') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(120, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(30, audioCtx.currentTime + 0.3);
+      gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+      osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+    } else if (type === 'grapple') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.15);
+      gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+      osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+    }
+  }
+
+  // --- Three.js Engine Setup ---
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0a0202);
+  scene.fog = new THREE.FogExp2(0x0a0202, 0.012);
+
+  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera.rotation.order = 'YXZ';
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  // Lighting
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+  dirLight.position.set(20, 50, 20);
+  scene.add(dirLight);
+
+  scene.add(new THREE.AmbientLight(0x301010));
+
+  // Lava Ground Grid
+  const lavaGrid = new THREE.GridHelper(500, 100, 0xff2200, 0xff5500);
+  lavaGrid.position.y = 0;
+  scene.add(lavaGrid);
+
+  const lavaPlane = new THREE.Mesh(
+    new THREE.PlaneGeometry(500, 500),
+    new THREE.MeshBasicMaterial({ color: 0xff1100, transparent: true, opacity: 0.3 })
+  );
+  lavaPlane.rotation.x = -Math.PI / 2;
+  lavaPlane.position.y = 0.05;
+  scene.add(lavaPlane);
+
+  // --- Detailed 3D Cyber Gun Model ---
+  const gunGroup = new THREE.Group();
+  
+  const bodyGeo = new THREE.BoxGeometry(0.1, 0.14, 0.4);
+  const gunMat = new THREE.MeshStandardMaterial({ color: 0x00f0ff, metalness: 0.8, roughness: 0.2 });
+  const gunBody = new THREE.Mesh(bodyGeo, gunMat);
+  gunGroup.add(gunBody);
+
+  const barrelGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.2, 12);
+  barrelGeo.rotateX(Math.PI / 2);
+  const barrelMesh = new THREE.Mesh(barrelGeo, new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.9 }));
+  barrelMesh.position.set(0, 0.02, -0.25);
+  gunGroup.add(barrelMesh);
+
+  // Glowing Core Mesh
+  const coreGeo = new THREE.SphereGeometry(0.04, 12, 12);
+  const coreMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+  const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+  coreMesh.position.set(0, 0.03, -0.05);
+  gunGroup.add(coreMesh);
+
+  // Muzzle Light Flash Effect
+  const muzzleLight = new THREE.PointLight(0x00f0ff, 0, 4);
+  muzzleLight.position.set(0, 0.02, -0.35);
+  gunGroup.add(muzzleLight);
+
+  gunGroup.position.set(0.25, -0.2, -0.4);
+  camera.add(gunGroup);
+  scene.add(camera);
+
+  // --- Grapple Laser Rope ---
+  const ropeMat = new THREE.LineBasicMaterial({ color: 0x00f0ff, linewidth: 4 });
+  const ropeGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+  const ropeLine = new THREE.Line(ropeGeo, ropeMat);
+  ropeLine.visible = false;
+  ropeLine.frustumCulled = false; // Prevent culling when moving away from origin
+  scene.add(ropeLine);
+
+  function applyEquippedSkins() {
+    const gunItem = gunCatalog.find(g => g.id === equippedGun) || gunCatalog[0];
+    const ropeItem = ropeCatalog.find(r => r.id === equippedRope) || ropeCatalog[0];
+
+    gunMat.color.setHex(gunItem.color);
+    coreMat.color.setHex(gunItem.color);
+    muzzleLight.color.setHex(gunItem.color);
+    ropeMat.color.setHex(ropeItem.color);
+  }
+
+  // --- Goal Portal ---
+  const portalGeo = new THREE.TorusGeometry(2.5, 0.3, 16, 32);
+  const portalMat = new THREE.MeshBasicMaterial({ color: 0x00ffaa, wireframe: true });
+  const goalPortal = new THREE.Mesh(portalGeo, portalMat);
+  scene.add(goalPortal);
+
+  // --- Map Structures & Visual Props ---
+  let structures = [];
+  let decorations = [];
+  let currentLevelIdx = 0;
+  let startPosition = new THREE.Vector3();
+  let goalPosition = new THREE.Vector3();
+
+  function createBuilding(x, y, z, w, h, d, color = 0x181c2b) {
+    const geo = new THREE.BoxGeometry(w, h, d);
+    const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.3 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(x, y + h / 2, z);
+    
+    const edges = new THREE.EdgesGeometry(geo);
+    const lineMat = new THREE.LineBasicMaterial({ color: color === 0x00ffaa ? 0x00ffaa : 0x00f0ff });
+    const wireframe = new THREE.LineSegments(edges, lineMat);
+    mesh.add(wireframe);
+
+    scene.add(mesh);
+    structures.push(mesh);
+    return mesh;
+  }
+
+  function createTree(x, y, z, foliageColor = 0x00f0ff) {
+    const treeGroup = new THREE.Group();
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.3, 3, 6), new THREE.MeshStandardMaterial({ color: 0x111122 }));
+    trunk.position.set(0, 1.5, 0);
+    treeGroup.add(trunk);
+
+    const foliage = new THREE.Mesh(new THREE.ConeGeometry(1.5, 3.5, 6), new THREE.MeshStandardMaterial({ color: foliageColor, wireframe: true }));
+    foliage.position.set(0, 3.5, 0);
+    treeGroup.add(foliage);
+
+    treeGroup.position.set(x, y, z);
+    scene.add(treeGroup);
+    decorations.push(treeGroup);
+  }
+
+  // --- Level Configs ---
+  const levelConfigs = [
+    {
+      name: "LEVEL 1: NEON FOREST",
+      start: new THREE.Vector3(0, 4, 0),
+      goal: new THREE.Vector3(0, 20, -110),
+      build: () => {
+        createBuilding(0, 0, 0, 10, 3, 10, 0x00ffaa);
+        createBuilding(-12, 0, -25, 8, 16, 8);
+        createBuilding(12, 0, -50, 8, 26, 8);
+        createBuilding(-10, 0, -75, 8, 22, 8);
+        createBuilding(0, 0, -110, 12, 18, 12, 0xff0080);
+        createBuilding(0, 5, -35, 4, 22, 4, 0x00f0ff);
+        createBuilding(-5, 10, -65, 4, 26, 4, 0x00f0ff);
+        createTree(-3, 3, -1, 0x00f0ff);
+        createTree(10, 26, -52, 0xff0080);
+      }
+    },
+    {
+      name: "LEVEL 2: SKYLINE ASCENT",
+      start: new THREE.Vector3(0, 4, 0),
+      goal: new THREE.Vector3(20, 55, -140),
+      build: () => {
+        createBuilding(0, 0, 0, 8, 3, 8, 0x00ffaa);
+        createBuilding(-15, 0, -35, 7, 30, 7);
+        createBuilding(15, 0, -70, 7, 45, 7);
+        createBuilding(-10, 0, -105, 7, 55, 7);
+        createBuilding(20, 0, -140, 10, 52, 10, 0xff0080);
+        for(let i = 0; i < 7; i++) {
+          createBuilding((Math.random() - 0.5) * 26, 8 + i * 7, -25 - i * 16, 3, 20, 3, 0x00f0ff);
+        }
+      }
+    },
+    {
+      name: "LEVEL 3: CRYSTAL GAUNTLET",
+      start: new THREE.Vector3(0, 4, 0),
+      goal: new THREE.Vector3(0, 36, -180),
+      build: () => {
+        createBuilding(0, 0, 0, 6, 3, 6, 0x00ffaa);
+        createBuilding(-18, 5, -45, 5, 12, 5);
+        createBuilding(18, 15, -90, 5, 12, 5);
+        createBuilding(-15, 22, -135, 5, 12, 5);
+        createBuilding(0, 0, -180, 8, 34, 8, 0xff0080);
+        for(let z = -30; z >= -160; z -= 25) {
+          createBuilding(Math.sin(z) * 14, 20, z, 3, 28, 3, 0x00f0ff);
+        }
+      }
+    },
+    {
+      name: "LEVEL 4: CYBER CITY SPIRES",
+      start: new THREE.Vector3(0, 4, 0),
+      goal: new THREE.Vector3(-20, 60, -210),
+      build: () => {
+        createBuilding(0, 0, 0, 8, 3, 8, 0x00ffaa);
+        createBuilding(0, 0, -40, 10, 35, 10);
+        createBuilding(-25, 0, -85, 12, 50, 12);
+        createBuilding(20, 0, -130, 10, 65, 10);
+        createBuilding(-20, 0, -210, 12, 58, 12, 0xff0080);
+        createBuilding(-12, 20, -60, 3, 30, 3, 0x00f0ff);
+      }
+    },
+    {
+      name: "LEVEL 5: INFERNO APEX",
+      start: new THREE.Vector3(0, 4, 0),
+      goal: new THREE.Vector3(0, 75, -250),
+      build: () => {
+        createBuilding(0, 0, 0, 6, 3, 6, 0x00ffaa);
+        for(let i = 1; i <= 10; i++) {
+          const z = -i * 23;
+          const x = (i % 2 === 0 ? 1 : -1) * (12 + Math.sin(i) * 6);
+          createBuilding(x, 0, z, 5, i * 6 + 10, 5);
+          createBuilding(0, i * 6 + 12, z, 2.5, 20, 2.5, 0x00f0ff);
+        }
+        createBuilding(0, 0, -250, 10, 73, 10, 0xff0080);
+      }
+    }
+  ];
+
+  function loadLevel(idx) {
+    structures.forEach(s => scene.remove(s));
+    decorations.forEach(d => scene.remove(d));
+    structures = []; decorations = [];
+
+    const config = levelConfigs[idx];
+    config.build();
+    
+    startPosition.copy(config.start);
+    goalPosition.copy(config.goal);
+    goalPortal.position.copy(goalPosition);
+    
+    camera.position.copy(startPosition);
+    velocity.set(0, 0, 0);
+
+    document.getElementById('hudLevel').innerText = config.name;
+    applyEquippedSkins();
+  }
+
+  // --- Collision Engine ---
+  const velocity = new THREE.Vector3();
+  let isGrounded = false;
+  let isGrappling = false;
+  let grapplePoint = null;
+  let inGame = false;
+
+  const PLAYER_RADIUS = 0.5;
+  const PLAYER_HEIGHT = 1.6;
+
+  function resolveCollisions() {
+    isGrounded = false;
+
+    let pMinX = camera.position.x - PLAYER_RADIUS;
+    let pMaxX = camera.position.x + PLAYER_RADIUS;
+    let pMinZ = camera.position.z - PLAYER_RADIUS;
+    let pMaxZ = camera.position.z + PLAYER_RADIUS;
+    let pMinY = camera.position.y - PLAYER_HEIGHT;
+    let pMaxY = camera.position.y;
+
+    for (let i = 0; i < structures.length; i++) {
+      const b = structures[i];
+      if (!b.geometry.boundingBox) b.geometry.computeBoundingBox();
+
+      const box = new THREE.Box3().setFromObject(b);
+
+      if (
+        pMaxX > box.min.x && pMinX < box.max.x &&
+        pMaxZ > box.min.z && pMinZ < box.max.z &&
+        pMaxY > box.min.y && pMinY < box.max.y
+      ) {
+        const overlapX1 = box.max.x - pMinX, overlapX2 = pMaxX - box.min.x;
+        const overlapX = Math.min(overlapX1, overlapX2);
+
+        const overlapZ1 = box.max.z - pMinZ, overlapZ2 = pMaxZ - box.min.z;
+        const overlapZ = Math.min(overlapZ1, overlapZ2);
+
+        const overlapY1 = box.max.y - pMinY, overlapY2 = pMaxY - box.min.y;
+        const overlapY = Math.min(overlapY1, overlapY2);
+
+        if (overlapY < overlapX && overlapY < overlapZ) {
+          if (overlapY1 < overlapY2 && velocity.y <= 0) {
+            camera.position.y = box.max.y + PLAYER_HEIGHT;
+            velocity.y = 0;
+            isGrounded = true;
+          } else if (overlapY2 < overlapY1 && velocity.y > 0) {
+            camera.position.y = box.min.y;
+            velocity.y = 0;
+          }
+        } else if (overlapX < overlapZ) {
+          if (overlapX1 < overlapX2) camera.position.x = box.max.x + PLAYER_RADIUS;
+          else camera.position.x = box.min.x - PLAYER_RADIUS;
+          velocity.x = 0;
+        } else {
+          if (overlapZ1 < overlapZ2) camera.position.z = box.max.z + PLAYER_RADIUS;
+          else camera.position.z = box.min.z - PLAYER_RADIUS;
+          velocity.z = 0;
+        }
+
+        pMinX = camera.position.x - PLAYER_RADIUS; pMaxX = camera.position.x + PLAYER_RADIUS;
+        pMinZ = camera.position.z - PLAYER_RADIUS; pMaxZ = camera.position.z + PLAYER_RADIUS;
+        pMinY = camera.position.y - PLAYER_HEIGHT; pMaxY = camera.position.y;
+      }
+    }
+  }
+
+  // --- Fixed Touch Handling ---
+  let yaw = 0, pitch = 0;
+  let moveVector = { x: 0, y: 0 };
+  let lookTouchId = null, joystickTouchId = null;
+  let lastLookX = 0, lastLookY = 0;
+
+  // Prevent action buttons from triggering camera look
+  const actionBtns = document.getElementById('actionBtns');
+  actionBtns.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: false });
+  actionBtns.addEventListener('touchmove', (e) => e.stopPropagation(), { passive: false });
+  actionBtns.addEventListener('touchend', (e) => e.stopPropagation(), { passive: false });
+
+  // Camera Rotation (Look Area)
+  const touchLookArea = document.getElementById('touchLookArea');
+  touchLookArea.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const touch = e.changedTouches[i];
+      if (lookTouchId === null) {
+        lookTouchId = touch.identifier;
+        lastLookX = touch.clientX;
+        lastLookY = touch.clientY;
+        break;
+      }
+    }
+  }, { passive: false });
+
+  touchLookArea.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const touch = e.changedTouches[i];
+      if (touch.identifier === lookTouchId) {
+        const dx = touch.clientX - lastLookX;
+        const dy = touch.clientY - lastLookY;
+
+        yaw -= dx * 0.0045;
+        pitch -= dy * 0.0045;
+
+        const maxPitch = Math.PI / 2 - 0.05;
+        pitch = Math.max(-maxPitch, Math.min(maxPitch, pitch));
+
+        camera.rotation.x = pitch;
+        camera.rotation.y = yaw;
+        camera.rotation.z = 0;
+
+        lastLookX = touch.clientX;
+        lastLookY = touch.clientY;
+        break;
+      }
+    }
+  }, { passive: false });
+
+  const endLook = (e) => {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === lookTouchId) lookTouchId = null;
+    }
+  };
+  touchLookArea.addEventListener('touchend', endLook);
+  touchLookArea.addEventListener('touchcancel', endLook);
+
+  // Joystick Controls (Strict Touch Detection)
+  const joyZone = document.getElementById('joystickZone');
+  const joyKnob = document.getElementById('joystickKnob');
+
+  joyZone.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    e.stopPropagation(); // Prevents camera look when touching joystick
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const touch = e.changedTouches[i];
+      if (joystickTouchId === null) {
+        joystickTouchId = touch.identifier;
+        updateJoystick(touch);
+        break;
+      }
+    }
+  }, { passive: false });
+
+  window.addEventListener('touchmove', (e) => {
+    if (joystickTouchId === null) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const touch = e.changedTouches[i];
+      if (touch.identifier === joystickTouchId) {
+        updateJoystick(touch);
+        break;
+      }
+    }
+  }, { passive: false });
+
+  function updateJoystick(touch) {
+    const rect = joyZone.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+
+    let dx = touch.clientX - centerX;
+    let dy = touch.clientY - centerY;
+    const dist = Math.min(Math.hypot(dx, dy), 40);
+    const angle = Math.atan2(dy, dx);
+
+    dx = Math.cos(angle) * dist;
+    dy = Math.sin(angle) * dist;
+
+    joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+    moveVector = { x: dx / 40, y: dy / 40 };
+  }
+
+  const endJoystick = (e) => {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === joystickTouchId) {
+        joystickTouchId = null;
+        joyKnob.style.transform = `translate(0px, 0px)`;
+        moveVector = { x: 0, y: 0 };
+        break;
+      }
+    }
+  };
+  window.addEventListener('touchend', endJoystick);
+  window.addEventListener('touchcancel', endJoystick);
+
+  // --- Actions & Shooting ---
+  const raycaster = new THREE.Raycaster();
+
+  function startGrapple() {
+    if (!inGame) return;
+    raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+    const hits = raycaster.intersectObjects(structures);
+
+    if (hits.length > 0 && hits[0].distance < 85) {
+      isGrappling = true;
+      grapplePoint = hits[0].point;
+      ropeLine.visible = true;
+      muzzleLight.intensity = 3;
+      playSound('grapple');
+    }
+  }
+
+  function stopGrapple() {
+    isGrappling = false;
+    grapplePoint = null;
+    ropeLine.visible = false;
+    muzzleLight.intensity = 0;
+  }
+
+  document.getElementById('grappleBtn').addEventListener('touchstart', (e) => { e.stopPropagation(); startGrapple(); });
+  document.getElementById('grappleBtn').addEventListener('touchend', (e) => { e.stopPropagation(); stopGrapple(); });
+
+  document.getElementById('jumpBtn').addEventListener('touchstart', (e) => {
+    e.stopPropagation();
+    if (isGrounded && inGame) {
+      velocity.y = 13;
+      isGrounded = false;
+    }
+  });
+
+  // --- Main Game Loop ---
+  const clock = new THREE.Clock();
+
+  function animate() {
+    requestAnimationFrame(animate);
+    const delta = Math.min(clock.getDelta(), 0.1);
+
+    goalPortal.rotation.z += delta * 1.5;
+
+    if (inGame) {
+      // 1. Lava Hazard Check
+      if (camera.position.y - PLAYER_HEIGHT <= 0.1) {
+        playSound('lava');
+        camera.position.copy(startPosition);
+        velocity.set(0, 0, 0);
+        stopGrapple();
+      }
+
+      // 2. Joystick Movement
+      if (moveVector.x !== 0 || moveVector.y !== 0) {
+        const moveAngle = Math.atan2(moveVector.x, -moveVector.y) + yaw;
+        const accel = isGrounded ? 38 : 14;
+        velocity.x += Math.sin(moveAngle) * accel * delta;
+        velocity.z -= Math.cos(moveAngle) * accel * delta;
+      }
+
+      // 3. High-Speed Grapple Reel
+      if (isGrappling && grapplePoint) {
+        const pullDir = new THREE.Vector3().subVectors(grapplePoint, camera.position);
+        pullDir.normalize();
+
+        velocity.addScaledVector(pullDir, 38 * delta);
+
+        const muzzlePos = new THREE.Vector3();
+        gunGroup.getWorldPosition(muzzlePos);
+
+        // Update vertex positions directly
+        const pos = ropeGeo.attributes.position;
+        pos.setXYZ(0, muzzlePos.x, muzzlePos.y, muzzlePos.z);
+        pos.setXYZ(1, grapplePoint.x, grapplePoint.y, grapplePoint.z);
+        pos.needsUpdate = true;
+      } else {
+        velocity.y += -22 * delta;
+      }
+
+      // 4. Physics & Damping
+      const damping = isGrounded ? 0.88 : 0.98;
+      velocity.x *= damping; velocity.z *= damping;
+
+      camera.position.addScaledVector(velocity, delta);
+
+      // 5. Collisions
+      resolveCollisions();
+
+      // 6. Progress Bar & Distance
+      const totalDist = startPosition.distanceTo(goalPosition);
+      const currentDist = camera.position.distanceTo(goalPosition);
+      const progressPercent = Math.min(100, Math.max(0, Math.round(((totalDist - currentDist) / totalDist) * 100)));
+
+      document.getElementById('progressFill').style.width = progressPercent + '%';
+      document.getElementById('progressText').innerText = progressPercent + '% COMPLETED';
+      document.getElementById('hudDist').innerText = Math.round(currentDist);
+
+      // 7. Victory
+      if (currentDist < 3.5) {
+        inGame = false;
+        stopGrapple();
+        coins += 100;
+        saveUserData();
+        document.getElementById('hud').style.display = 'none';
+        document.getElementById('topBar').style.display = 'none';
+        document.getElementById('victoryScreen').style.display = 'flex';
+      }
+    }
+
+    renderer.render(scene, camera);
+  }
+
+  // --- UI Navigation ---
+  function selectLevel(idx) {
+    currentLevelIdx = idx;
+    const btns = document.querySelectorAll('.lvl-btn');
+    btns.forEach((b, i) => b.classList.toggle('active', i === idx));
+  }
+
+  function startGame() {
+    document.getElementById('lobbyScreen').style.display = 'none';
+    document.getElementById('victoryScreen').style.display = 'none';
+    document.getElementById('hud').style.display = 'block';
+    document.getElementById('topBar').style.display = 'block';
+    
+    loadLevel(currentLevelIdx);
+    inGame = true;
+  }
+
+  function returnToLobby() {
+    inGame = false;
+    stopGrapple();
+    document.getElementById('hud').style.display = 'none';
+    document.getElementById('topBar').style.display = 'none';
+    document.getElementById('victoryScreen').style.display = 'none';
+    document.getElementById('lobbyScreen').style.display = 'flex';
+    updateCoinDisplays();
+  }
+
+  function nextLevel() {
+    currentLevelIdx = (currentLevelIdx + 1) % levelConfigs.length;
+    selectLevel(currentLevelIdx);
+    startGame();
+  }
+
+  updateCoinDisplays();
+  animate();
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+</script>
+</body>
+</html>
