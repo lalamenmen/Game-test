@@ -98,6 +98,7 @@
       min-height: 16px;
     }
 
+    /* Existing UI Extensions */
     #multiplayer-status {
       margin-top: 4px;
       font-size: 11px;
@@ -603,6 +604,10 @@
     const hotbarItems = [null, null, null, null];
     const inventoryItems = Array(9).fill(null);
 
+    /* ==========================================================================
+       DATA SAVE & RESTORE BY NICKNAME
+       ========================================================================== */
+
     function savePlayerData() {
       if (!myPlayerName) return;
       const data = {
@@ -637,6 +642,7 @@
       }
     }
 
+    // Auto-save player state periodically
     setInterval(savePlayerData, 3000);
 
     const treeHealth = {};
@@ -671,6 +677,10 @@
     ];
 
     const animals = [];
+
+    /* ==========================================================================
+       LOBBY AND NETWORKING (PeerJS)
+       ========================================================================== */
 
     const lobbyStatus = document.getElementById('lobby-status');
 
@@ -751,6 +761,7 @@
       });
     });
 
+    // Return to Lobby handler
     document.getElementById('leave-lobby-btn').addEventListener('click', returnToLobby);
 
     function returnToLobby() {
@@ -774,6 +785,7 @@
       setupPeerEvents();
     }
 
+    // Dispatch network actions to Host
     function dispatchAction(actionData) {
       if (isHost) {
         processAction(actionData, player.id);
@@ -799,8 +811,6 @@
         projectiles: projectiles,
         destroyedTrees: Array.from(destroyedTrees),
         destroyedRocks: Array.from(destroyedRocks),
-        treeHealth: treeHealth,
-        rockHealth: rockHealth,
         players: {
           [player.id]: getPlayerStatePacket(player),
           ...remotePlayers
@@ -843,6 +853,7 @@
     function handleIncomingData(data, conn) {
       if (data.type === 'CLIENT_UPDATE' && isHost) {
         if (remotePlayers[data.player.id]) {
+          // Preserve authoritative HP from Host
           let currentHp = remotePlayers[data.player.id].hp;
           remotePlayers[data.player.id] = data.player;
           remotePlayers[data.player.id].hp = currentHp;
@@ -858,28 +869,24 @@
         dayCount = data.dayCount;
         isNight = data.isNight;
 
+        // Sync structures
         for (let k in structures) delete structures[k];
         Object.assign(structures, data.structures);
 
+        // Sync world items
         worldItems.length = 0;
         worldItems.push(...data.worldItems);
 
+        // Sync animals
         animals.length = 0;
         animals.push(...data.animals);
 
+        // Sync projectiles
         projectiles.length = 0;
         projectiles.push(...data.projectiles);
 
-        destroyedTrees.clear();
         data.destroyedTrees.forEach(t => destroyedTrees.add(t));
-        destroyedRocks.clear();
         data.destroyedRocks.forEach(r => destroyedRocks.add(r));
-
-        for (let k in treeHealth) delete treeHealth[k];
-        Object.assign(treeHealth, data.treeHealth);
-
-        for (let k in rockHealth) delete rockHealth[k];
-        Object.assign(rockHealth, data.rockHealth);
 
         if (data.players[player.id]) {
           player.hp = data.players[player.id].hp;
@@ -890,6 +897,7 @@
       }
     }
 
+    // Authoritative processing on Host
     function processAction(act, senderId) {
       if (!isHost) return;
 
@@ -1032,6 +1040,10 @@
         worldItems.push(act.item);
       }
     }
+
+    /* ==========================================================================
+       GAME ENGINE & LOGIC
+       ========================================================================== */
 
     function spawnMobNearPlayer() {
       if (!isHost || animals.length >= 8) return;
@@ -1353,7 +1365,6 @@
           sourceArr[draggedSource.index] = temp;
         }
       } else {
-        // Drop single item fix
         dispatchAction({
           type: 'DROP_ITEM',
           item: {
@@ -1437,6 +1448,7 @@
       }
     });
 
+    // Player Interaction & Attacks
     canvas.addEventListener('pointerdown', e => {
       if (invModal.classList.contains('active')) return;
       if (player.actionCooldown > 0) return;
@@ -1460,6 +1472,7 @@
       let nodeCenterY = targetTy * DRAW_TILE_SIZE + DRAW_TILE_SIZE / 2;
       let dist = Math.hypot(player.x - nodeCenterX, player.y - nodeCenterY);
 
+      // Bow Ranged Attack
       if (activeItem && activeItem.name === 'Bow') {
         let arrowCount = getItemCount('Arrow');
         if (arrowCount > 0) {
@@ -1482,6 +1495,7 @@
         }
       }
 
+      // Check PvP Melee Attacks
       let allOtherPlayers = [];
       for (let pid in remotePlayers) {
         if (pid !== player.id) {
@@ -1507,6 +1521,7 @@
         }
       }
 
+      // Structure Removal
       if (structures[nodeKey] && dist < 100) {
         player.punchingTimer = 12;
         player.actionCooldown = 15;
@@ -1524,6 +1539,7 @@
         return;
       }
 
+      // Structure Placement
       if (activeItem && (activeItem.name === 'Fence' || activeItem.name === 'Door' || activeItem.name === 'Boat')) {
         if (targetTx === pTileX && targetTy === pTileY) return;
 
@@ -1583,6 +1599,7 @@
         }
       }
 
+      // Animal Attacks
       for (let i = animals.length - 1; i >= 0; i--) {
         let animal = animals[i];
         let distToMob = Math.hypot(clickWorldX - (animal.x + 12), clickWorldY - (animal.y + 12));
@@ -1826,12 +1843,14 @@
           }
         });
 
+        // Projectile collisions on Host
         for (let i = projectiles.length - 1; i >= 0; i--) {
           let p = projectiles[i];
           p.x += p.vx;
           p.y += p.vy;
           p.life--;
 
+          // Check hit animals
           for (let j = animals.length - 1; j >= 0; j--) {
             let a = animals[j];
             let dist = Math.hypot(p.x - (a.x + 12), p.y - (a.y + 12));
@@ -1862,6 +1881,7 @@
             }
           }
 
+          // Check PvP hit players
           let allTargets = [player, ...Object.values(remotePlayers)];
           for (let targetP of allTargets) {
             if (targetP.id !== p.ownerId) {
@@ -2150,6 +2170,7 @@
       ctx.textAlign = 'center';
       ctx.fillText(p.name || 'Player', 16, -14);
 
+      // Render player health bar overhead
       if (p.hp < p.maxHp) {
         ctx.fillStyle = 'rgba(0,0,0,0.7)';
         ctx.fillRect(-2, -10, 36, 5);
@@ -2400,164 +2421,180 @@
       ctx.restore();
     }
 
-    function drawForestRock(drawX, drawY, key) {
+    function drawForestRock(drawX, drawY) {
       ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
       ctx.beginPath();
       ctx.ellipse(drawX + 24, drawY + 38, 20, 8, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      let shake = 0;
-      if (rockHealth[key] && rockHealth[key].shake > 0) {
-        shake = (Math.random() - 0.5) * 4;
-        rockHealth[key].shake--;
-      }
-
-      ctx.fillStyle = '#546e7a';
+      ctx.fillStyle = '#3a3d40';
       ctx.beginPath();
-      ctx.roundRect(drawX + 6 + shake, drawY + 12 + shake, 36, 28, 10);
+      ctx.moveTo(drawX + 8, drawY + 36);
+      ctx.lineTo(drawX + 4, drawY + 22);
+      ctx.lineTo(drawX + 12, drawY + 12);
+      ctx.lineTo(drawX + 28, drawY + 10);
+      ctx.lineTo(drawX + 42, drawY + 18);
+      ctx.lineTo(drawX + 44, drawY + 34);
+      ctx.lineTo(drawX + 32, drawY + 40);
+      ctx.closePath();
       ctx.fill();
 
-      ctx.fillStyle = '#78909c';
+      ctx.fillStyle = '#5c6066';
       ctx.beginPath();
-      ctx.roundRect(drawX + 10 + shake, drawY + 16 + shake, 28, 20, 8);
+      ctx.moveTo(drawX + 10, drawY + 34);
+      ctx.lineTo(drawX + 6, drawY + 22);
+      ctx.lineTo(drawX + 14, drawY + 14);
+      ctx.lineTo(drawX + 27, drawY + 12);
+      ctx.lineTo(drawX + 39, drawY + 20);
+      ctx.lineTo(drawX + 40, drawY + 32);
+      ctx.lineTo(drawX + 30, drawY + 38);
+      ctx.closePath();
       ctx.fill();
-
-      if (rockHealth[key] && rockHealth[key].hp < rockHealth[key].maxHp) {
-        let pct = Math.max(0, rockHealth[key].hp / rockHealth[key].maxHp);
-        ctx.fillStyle = 'rgba(0,0,0,0.8)';
-        ctx.fillRect(drawX + 6, drawY + 2, 36, 5);
-        ctx.fillStyle = '#e74c3c';
-        ctx.fillRect(drawX + 7, drawY + 3, 34 * pct, 3);
-      }
     }
 
-    function drawTree(drawX, drawY, key) {
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    function drawGroundItem(item, screenX, screenY) {
+      let hoverOffset = Math.sin(Date.now() / 250 + item.floatSeed) * 4;
+      let drawY = screenY + hoverOffset;
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
       ctx.beginPath();
-      ctx.ellipse(drawX + 24, drawY + 42, 18, 6, 0, 0, Math.PI * 2);
+      ctx.ellipse(screenX + 10, screenY + 16, 8, 3, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      let shake = 0;
-      if (treeHealth[key] && treeHealth[key].shake > 0) {
-        shake = (Math.random() - 0.5) * 4;
-        treeHealth[key].shake--;
-      }
-
-      ctx.fillStyle = '#5d4037';
-      ctx.fillRect(drawX + 20 + shake, drawY + 20, 8, 24);
-
-      ctx.fillStyle = '#1b5e20';
-      ctx.beginPath();
-      ctx.arc(drawX + 24 + shake, drawY + 14, 20, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = '#2e7d32';
-      ctx.beginPath();
-      ctx.arc(drawX + 20 + shake, drawY + 10, 14, 0, Math.PI * 2);
-      ctx.fill();
-
-      if (treeHealth[key] && treeHealth[key].hp < treeHealth[key].maxHp) {
-        let pct = Math.max(0, treeHealth[key].hp / treeHealth[key].maxHp);
-        ctx.fillStyle = 'rgba(0,0,0,0.8)';
-        ctx.fillRect(drawX + 6, drawY - 10, 36, 5);
-        ctx.fillStyle = '#2ecc71';
-        ctx.fillRect(drawX + 7, drawY - 9, 34 * pct, 3);
-      }
+      ctx.font = '16px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(item.icon || '❓', screenX + 10, drawY + 12);
+      ctx.restore();
     }
+
+    /* ==========================================================================
+       RENDER LOOP
+       ========================================================================== */
 
     function render() {
-      ctx.fillStyle = '#111';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       const cameraX = player.x - canvas.width / 2 + DRAW_TILE_SIZE / 2;
       const cameraY = player.y - canvas.height / 2 + DRAW_TILE_SIZE / 2;
 
-      const startCol = Math.floor(cameraX / DRAW_TILE_SIZE);
-      const endCol = startCol + Math.ceil(canvas.width / DRAW_TILE_SIZE) + 1;
-      const startRow = Math.floor(cameraY / DRAW_TILE_SIZE);
-      const endRow = startRow + Math.ceil(canvas.height / DRAW_TILE_SIZE) + 1;
+      const startTx = Math.floor(cameraX / DRAW_TILE_SIZE) - 1;
+      const endTx = Math.ceil((cameraX + canvas.width) / DRAW_TILE_SIZE) + 1;
+      const startTy = Math.floor(cameraY / DRAW_TILE_SIZE) - 1;
+      const endTy = Math.ceil((cameraY + canvas.height) / DRAW_TILE_SIZE) + 1;
 
-      // Render World Map
-      for (let c = startCol; c <= endCol; c++) {
-        for (let r = startRow; r <= endRow; r++) {
-          let tile = getTile(c, r);
-          let drawX = c * DRAW_TILE_SIZE - cameraX;
-          let drawY = r * DRAW_TILE_SIZE - cameraY;
+      // Draw Terrain
+      for (let tx = startTx; tx <= endTx; tx++) {
+        for (let ty = startTy; ty <= endTy; ty++) {
+          let tile = getTile(tx, ty);
+          let drawX = tx * DRAW_TILE_SIZE - cameraX;
+          let drawY = ty * DRAW_TILE_SIZE - cameraY;
 
           ctx.fillStyle = tile.color;
           ctx.fillRect(drawX, drawY, DRAW_TILE_SIZE, DRAW_TILE_SIZE);
+        }
+      }
 
-          let key = `${c},${r}`;
-          let struct = structures[key];
+      // Draw Structures
+      for (let key in structures) {
+        let struct = structures[key];
+        let drawX = struct.tx * DRAW_TILE_SIZE - cameraX;
+        let drawY = struct.ty * DRAW_TILE_SIZE - cameraY;
 
-          if (struct) {
-            drawStructure(struct, drawX, drawY);
-          } else {
-            let rand = pseudoRandom(c, r);
-            let isTree = (tile === BIOMES.FOREST && rand < 0.28) || (tile === BIOMES.PLAINS && rand > 0.92);
-            let isRock = (tile === BIOMES.MOUNTAIN && rand < 0.40) || (tile === BIOMES.PLAINS && rand < 0.05);
+        if (drawX > -DRAW_TILE_SIZE && drawX < canvas.width && drawY > -DRAW_TILE_SIZE && drawY < canvas.height) {
+          drawStructure(struct, drawX, drawY);
+        }
+      }
 
-            if (isTree && !destroyedTrees.has(key)) {
-              drawTree(drawX, drawY, key);
-            } else if (isRock && !destroyedRocks.has(key)) {
-              drawForestRock(drawX, drawY, key);
-            }
+      // Draw Trees & Rocks
+      for (let tx = startTx; tx <= endTx; tx++) {
+        for (let ty = startTy; ty <= endTy; ty++) {
+          let nodeKey = `${tx},${ty}`;
+          let tile = getTile(tx, ty);
+          let rand = pseudoRandom(tx, ty);
+          let drawX = tx * DRAW_TILE_SIZE - cameraX;
+          let drawY = ty * DRAW_TILE_SIZE - cameraY;
+
+          let isTree = (tile === BIOMES.FOREST && rand < 0.28) || (tile === BIOMES.PLAINS && rand > 0.92);
+          let isRock = (tile === BIOMES.MOUNTAIN && rand < 0.40) || (tile === BIOMES.PLAINS && rand < 0.05);
+
+          if (isTree && !destroyedTrees.has(nodeKey)) {
+            let shake = (treeHealth[nodeKey] && treeHealth[nodeKey].shake > 0) ? (Math.random() * 4 - 2) : 0;
+            if (treeHealth[nodeKey] && treeHealth[nodeKey].shake > 0) treeHealth[nodeKey].shake--;
+
+            ctx.fillStyle = '#225511';
+            ctx.beginPath();
+            ctx.arc(drawX + DRAW_TILE_SIZE / 2 + shake, drawY + DRAW_TILE_SIZE / 2, DRAW_TILE_SIZE * 0.7, 0, Math.PI * 2);
+            ctx.fill();
+          } else if (isRock && !destroyedRocks.has(nodeKey)) {
+            drawForestRock(drawX, drawY);
           }
         }
       }
 
-      // Render World Items
+      // Draw Ground Items
       for (let item of worldItems) {
         let drawX = item.x - cameraX;
         let drawY = item.y - cameraY;
-        let floatOffsetY = Math.sin(gameTicks * 0.08 + (item.floatSeed || 0)) * 3;
-
-        ctx.font = '18px monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(item.icon, drawX + 8, drawY + 8 + floatOffsetY);
+        if (drawX > -20 && drawX < canvas.width + 20 && drawY > -20 && drawY < canvas.height + 20) {
+          drawGroundItem(item, drawX, drawY);
+        }
       }
 
-      // Render Mobs
+      // Draw Animals
       for (let animal of animals) {
         let drawX = animal.x - cameraX;
         let drawY = animal.y - cameraY;
-        drawAnimal(animal, drawX, drawY);
+        if (drawX > -40 && drawX < canvas.width + 40 && drawY > -40 && drawY < canvas.height + 40) {
+          drawAnimal(animal, drawX, drawY);
+        }
       }
 
-      // Render Remote Players
-      for (let id in remotePlayers) {
-        let p = remotePlayers[id];
+      // Draw Projectiles
+      for (let p of projectiles) {
         let drawX = p.x - cameraX;
         let drawY = p.y - cameraY;
-        drawPlayerObject(p, drawX, drawY);
-      }
-
-      // Render Local Player
-      drawPlayerObject(player, player.x - cameraX, player.y - cameraY);
-
-      // Render Projectiles
-      ctx.fillStyle = '#f39c12';
-      for (let proj of projectiles) {
+        ctx.fillStyle = '#f1c40f';
         ctx.beginPath();
-        ctx.arc(proj.x - cameraX, proj.y - cameraY, 3, 0, Math.PI * 2);
+        ctx.arc(drawX, drawY, 3, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      // Night Lighting Overlay
+      // Draw Remote Players
+      for (let pid in remotePlayers) {
+        if (pid !== player.id) {
+          let rPlayer = remotePlayers[pid];
+          let drawX = rPlayer.x - cameraX;
+          let drawY = rPlayer.y - cameraY;
+          if (drawX > -50 && drawX < canvas.width + 50 && drawY > -50 && drawY < canvas.height + 50) {
+            drawPlayerObject(rPlayer, drawX, drawY);
+          }
+        }
+      }
+
+      // Draw Local Player
+      let localScreenX = player.x - cameraX;
+      let localScreenY = player.y - cameraY;
+      drawPlayerObject(player, localScreenX, localScreenY);
+
+      // Night Tint Overlay
       if (isNight) {
-        ctx.fillStyle = 'rgba(5, 10, 30, 0.55)';
+        ctx.fillStyle = 'rgba(10, 15, 35, 0.45)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
     }
 
-    function gameLoop() {
+    /* ==========================================================================
+       MAIN LOOP
+       ========================================================================== */
+
+    function loop() {
       update();
       render();
-      requestAnimationFrame(gameLoop);
+      requestAnimationFrame(loop);
     }
 
-    updateInventoryUI();
-    requestAnimationFrame(gameLoop);
+    loop();
   </script>
 </body>
 </html>
