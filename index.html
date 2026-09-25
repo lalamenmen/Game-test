@@ -400,7 +400,7 @@
     <div class="lobby-card">
       <h1>2D RPG MULTIPLAYER</h1>
       
-      <input type="text" id="player-name" class="lobby-input" placeholder="Enter Your Name" value="Player">
+      <input type="text" id="player-name" class="lobby-input" placeholder="Enter Your Nickname" value="Player">
       <hr style="border-color: #444; margin: 12px 0;">
 
       <!-- Custom Room Code Input for Host -->
@@ -604,6 +604,47 @@
     const hotbarItems = [null, null, null, null];
     const inventoryItems = Array(9).fill(null);
 
+    /* ==========================================================================
+       DATA SAVE & RESTORE BY NICKNAME
+       ========================================================================== */
+
+    function savePlayerData() {
+      if (!myPlayerName) return;
+      const data = {
+        hotbar: hotbarItems,
+        inventory: inventoryItems,
+        hp: player.hp,
+        hunger: player.hunger,
+        x: player.x,
+        y: player.y
+      };
+      localStorage.setItem('rpg_save_' + myPlayerName.trim().toLowerCase(), JSON.stringify(data));
+    }
+
+    function loadPlayerData(name) {
+      if (!name) return;
+      const raw = localStorage.getItem('rpg_save_' + name.trim().toLowerCase());
+      if (!raw) return;
+      try {
+        const data = JSON.parse(raw);
+        if (data.hotbar) {
+          for (let i = 0; i < 4; i++) hotbarItems[i] = data.hotbar[i] || null;
+        }
+        if (data.inventory) {
+          for (let i = 0; i < 9; i++) inventoryItems[i] = data.inventory[i] || null;
+        }
+        if (typeof data.hp === 'number') player.hp = data.hp;
+        if (typeof data.hunger === 'number') player.hunger = data.hunger;
+        if (typeof data.x === 'number') player.x = data.x;
+        if (typeof data.y === 'number') player.y = data.y;
+      } catch (e) {
+        console.error("Failed to load save data", e);
+      }
+    }
+
+    // Auto-save player state periodically
+    setInterval(savePlayerData, 3000);
+
     const treeHealth = {};
     const destroyedTrees = new Set();
     const rockHealth = {};
@@ -670,8 +711,9 @@
     setupPeerEvents();
 
     document.getElementById('host-btn').addEventListener('click', () => {
-      myPlayerName = document.getElementById('player-name').value || "Host";
+      myPlayerName = document.getElementById('player-name').value.trim() || "Host";
       player.name = myPlayerName;
+      loadPlayerData(myPlayerName);
       
       let customCode = document.getElementById('custom-room-input').value.trim();
 
@@ -687,6 +729,7 @@
       isHost = true;
       document.getElementById('lobby-screen').style.display = 'none';
       document.getElementById('multiplayer-status').innerText = `Hosting Room Code: ${myPlayerId}`;
+      updateInventoryUI();
     });
 
     document.getElementById('join-btn').addEventListener('click', () => {
@@ -696,8 +739,9 @@
         return;
       }
 
-      myPlayerName = document.getElementById('player-name').value || "Client";
+      myPlayerName = document.getElementById('player-name').value.trim() || "Client";
       player.name = myPlayerName;
+      loadPlayerData(myPlayerName);
       isHost = false;
 
       lobbyStatus.innerText = "Connecting to room...";
@@ -706,6 +750,7 @@
       hostConn.on('open', () => {
         document.getElementById('lobby-screen').style.display = 'none';
         document.getElementById('multiplayer-status').innerText = `Connected to Room: ${roomId}`;
+        updateInventoryUI();
       });
 
       hostConn.on('data', (data) => handleIncomingData(data, hostConn));
@@ -720,6 +765,7 @@
     document.getElementById('leave-lobby-btn').addEventListener('click', returnToLobby);
 
     function returnToLobby() {
+      savePlayerData();
       if (hostConn) {
         hostConn.close();
         hostConn = null;
@@ -807,7 +853,7 @@
     function handleIncomingData(data, conn) {
       if (data.type === 'CLIENT_UPDATE' && isHost) {
         if (remotePlayers[data.player.id]) {
-          // Keep server authoritative HP
+          // Preserve authoritative HP from Host
           let currentHp = remotePlayers[data.player.id].hp;
           remotePlayers[data.player.id] = data.player;
           remotePlayers[data.player.id].hp = currentHp;
@@ -1080,6 +1126,7 @@
       };
       deduct(hotbarItems);
       if (remaining > 0) deduct(inventoryItems);
+      savePlayerData();
     }
 
     function addItemToInventory(itemName, icon, amount = 1) {
@@ -1120,6 +1167,7 @@
       if (remaining > 0) fillEmptyArr(hotbarItems);
       if (remaining > 0) fillEmptyArr(inventoryItems);
 
+      savePlayerData();
       return remaining < amount;
     }
 
@@ -1339,6 +1387,7 @@
       draggedItem = null;
       isDraggingActive = false;
       dragGhost.style.display = 'none';
+      savePlayerData();
       updateInventoryUI();
     }
 
@@ -1394,6 +1443,7 @@
         if (activeItem.count <= 0) {
           hotbarItems[activeHotbarIndex] = null;
         }
+        savePlayerData();
         updateInventoryUI();
       }
     });
@@ -1446,14 +1496,6 @@
       }
 
       // Check PvP Melee Attacks
-      let pvpTargets = [];
-      if (!isHost) {
-        // Host target
-        if (remotePlayers[myPlayerId] === undefined) {
-          // Find Host player via remotePlayers or state
-        }
-      }
-      
       let allOtherPlayers = [];
       for (let pid in remotePlayers) {
         if (pid !== player.id) {
@@ -1524,6 +1566,7 @@
               activeItem.count -= 1;
               if (activeItem.count <= 0) hotbarItems[activeHotbarIndex] = null;
               player.actionCooldown = 15;
+              savePlayerData();
               updateInventoryUI();
               return;
             }
@@ -1548,6 +1591,7 @@
               activeItem.count -= 1;
               if (activeItem.count <= 0) hotbarItems[activeHotbarIndex] = null;
               player.actionCooldown = 15;
+              savePlayerData();
               updateInventoryUI();
               return;
             }
@@ -2415,25 +2459,18 @@
       ctx.save();
       ctx.fillStyle = 'rgba(0,0,0,0.3)';
       ctx.beginPath();
-      ctx.ellipse(screenX + 10, screenY + 14, 8, 3, 0, 0, Math.PI * 2);
+      ctx.ellipse(screenX + 10, screenY + 16, 8, 3, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.font = '18px sans-serif';
-      ctx.textBaseline = 'middle';
+      ctx.font = '16px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(item.icon, screenX + 10, drawY + 6);
+      ctx.fillText(item.icon || '❓', screenX + 10, drawY + 12);
       ctx.restore();
     }
 
-    function drawProjectile(p, screenX, screenY) {
-      ctx.save();
-      ctx.translate(screenX, screenY);
-      ctx.fillStyle = '#fff';
-      ctx.beginPath();
-      ctx.arc(0, 0, 3, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
+    /* ==========================================================================
+       RENDER LOOP
+       ========================================================================== */
 
     function render() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -2441,194 +2478,123 @@
       const cameraX = player.x - canvas.width / 2 + DRAW_TILE_SIZE / 2;
       const cameraY = player.y - canvas.height / 2 + DRAW_TILE_SIZE / 2;
 
-      const startTileX = Math.floor(cameraX / DRAW_TILE_SIZE) - 2;
-      const endTileX = Math.ceil((cameraX + canvas.width) / DRAW_TILE_SIZE) + 2;
-      const startTileY = Math.floor(cameraY / DRAW_TILE_SIZE) - 3;
-      const endTileY = Math.ceil((cameraY + canvas.height) / DRAW_TILE_SIZE) + 2;
+      const startTx = Math.floor(cameraX / DRAW_TILE_SIZE) - 1;
+      const endTx = Math.ceil((cameraX + canvas.width) / DRAW_TILE_SIZE) + 1;
+      const startTy = Math.floor(cameraY / DRAW_TILE_SIZE) - 1;
+      const endTy = Math.ceil((cameraY + canvas.height) / DRAW_TILE_SIZE) + 1;
 
-      for (let tx = startTileX; tx <= endTileX; tx++) {
-        for (let ty = startTileY; ty <= endTileY; ty++) {
+      // Draw Terrain
+      for (let tx = startTx; tx <= endTx; tx++) {
+        for (let ty = startTy; ty <= endTy; ty++) {
           let tile = getTile(tx, ty);
-          let drawX = Math.floor(tx * DRAW_TILE_SIZE - cameraX);
-          let drawY = Math.floor(ty * DRAW_TILE_SIZE - cameraY);
+          let drawX = tx * DRAW_TILE_SIZE - cameraX;
+          let drawY = ty * DRAW_TILE_SIZE - cameraY;
 
           ctx.fillStyle = tile.color;
-          ctx.fillRect(drawX, drawY, DRAW_TILE_SIZE + 1, DRAW_TILE_SIZE + 1);
-
-          if (tile === BIOMES.WATER && pseudoRandom(tx, ty) > 0.5) {
-            ctx.fillStyle = '#5b92e5';
-            ctx.fillRect(drawX + 8, drawY + 16, 14, 3);
-            ctx.fillRect(drawX + 26, drawY + 30, 10, 3);
-          }
+          ctx.fillRect(drawX, drawY, DRAW_TILE_SIZE, DRAW_TILE_SIZE);
         }
       }
 
-      let renderQueue = [];
+      // Draw Structures
+      for (let key in structures) {
+        let struct = structures[key];
+        let drawX = struct.tx * DRAW_TILE_SIZE - cameraX;
+        let drawY = struct.ty * DRAW_TILE_SIZE - cameraY;
 
-      renderQueue.push({
-        y: player.y + DRAW_TILE_SIZE,
-        draw: () => {
-          const playerScreenX = Math.floor(player.x - cameraX);
-          const playerScreenY = Math.floor(player.y - cameraY);
-          drawPlayerObject(player, playerScreenX, playerScreenY);
+        if (drawX > -DRAW_TILE_SIZE && drawX < canvas.width && drawY > -DRAW_TILE_SIZE && drawY < canvas.height) {
+          drawStructure(struct, drawX, drawY);
         }
-      });
+      }
 
-      Object.values(remotePlayers).forEach(rp => {
-        renderQueue.push({
-          y: rp.y + DRAW_TILE_SIZE,
-          draw: () => {
-            const rScreenX = Math.floor(rp.x - cameraX);
-            const rScreenY = Math.floor(rp.y - cameraY);
-            drawPlayerObject(rp, rScreenX, rScreenY);
-          }
-        });
-      });
-
-      animals.forEach(a => {
-        renderQueue.push({
-          y: a.y + 16,
-          draw: () => {
-            let screenX = Math.floor(a.x - cameraX);
-            let screenY = Math.floor(a.y - cameraY);
-            drawAnimal(a, screenX, screenY);
-          }
-        });
-      });
-
-      Object.keys(structures).forEach(key => {
-        let s = structures[key];
-        renderQueue.push({
-          y: s.y + (s.type === 'Boat' ? 0 : DRAW_TILE_SIZE),
-          draw: () => {
-            let screenX = Math.floor(s.x - cameraX);
-            let screenY = Math.floor(s.y - cameraY);
-            drawStructure(s, screenX, screenY);
-          }
-        });
-      });
-
-      worldItems.forEach(item => {
-        renderQueue.push({
-          y: item.y + 10,
-          draw: () => {
-            let screenX = Math.floor(item.x - cameraX);
-            let screenY = Math.floor(item.y - cameraY);
-            drawGroundItem(item, screenX, screenY);
-          }
-        });
-      });
-
-      projectiles.forEach(p => {
-        renderQueue.push({
-          y: p.y,
-          draw: () => {
-            let screenX = Math.floor(p.x - cameraX);
-            let screenY = Math.floor(p.y - cameraY);
-            drawProjectile(p, screenX, screenY);
-          }
-        });
-      });
-
-      for (let tx = startTileX; tx <= endTileX; tx++) {
-        for (let ty = startTileY; ty <= endTileY; ty++) {
+      // Draw Trees & Rocks
+      for (let tx = startTx; tx <= endTx; tx++) {
+        for (let ty = startTy; ty <= endTy; ty++) {
           let nodeKey = `${tx},${ty}`;
-
           let tile = getTile(tx, ty);
-          let rawX = Math.floor(tx * DRAW_TILE_SIZE - cameraX);
-          let drawY = Math.floor(ty * DRAW_TILE_SIZE - cameraY);
           let rand = pseudoRandom(tx, ty);
-          let worldY = ty * DRAW_TILE_SIZE + DRAW_TILE_SIZE;
+          let drawX = tx * DRAW_TILE_SIZE - cameraX;
+          let drawY = ty * DRAW_TILE_SIZE - cameraY;
 
           let isTree = (tile === BIOMES.FOREST && rand < 0.28) || (tile === BIOMES.PLAINS && rand > 0.92);
           let isRock = (tile === BIOMES.MOUNTAIN && rand < 0.40) || (tile === BIOMES.PLAINS && rand < 0.05);
 
           if (isTree && !destroyedTrees.has(nodeKey)) {
-            let shakeX = 0;
-            if (treeHealth[nodeKey] && treeHealth[nodeKey].shake > 0) {
-              treeHealth[nodeKey].shake--;
-              shakeX = Math.sin(treeHealth[nodeKey].shake * 1.5) * 4;
-            }
-            let drawX = rawX + shakeX;
+            let shake = (treeHealth[nodeKey] && treeHealth[nodeKey].shake > 0) ? (Math.random() * 4 - 2) : 0;
+            if (treeHealth[nodeKey] && treeHealth[nodeKey].shake > 0) treeHealth[nodeKey].shake--;
 
-            renderQueue.push({
-              y: worldY,
-              draw: () => {
-                ctx.fillStyle = 'rgba(0,0,0,0.3)';
-                ctx.beginPath();
-                ctx.ellipse(drawX + 24, drawY + 42, 20, 7, 0, 0, Math.PI * 2);
-                ctx.fill();
-
-                ctx.fillStyle = '#26170d';
-                ctx.fillRect(drawX + 18, drawY + 15, 12, 30);
-
-                ctx.fillStyle = '#184518';
-                ctx.beginPath();
-                ctx.moveTo(drawX + 24, drawY - 10);
-                ctx.lineTo(drawX - 8, drawY + 25);
-                ctx.lineTo(drawX + 56, drawY + 25);
-                ctx.fill();
-
-                ctx.fillStyle = '#236123';
-                ctx.beginPath();
-                ctx.moveTo(drawX + 24, drawY - 35);
-                ctx.lineTo(drawX - 2, drawY + 5);
-                ctx.lineTo(drawX + 50, drawY + 5);
-                ctx.fill();
-
-                ctx.fillStyle = '#2f7a2f';
-                ctx.beginPath();
-                ctx.moveTo(drawX + 24, drawY - 55);
-                ctx.lineTo(drawX + 4, drawY - 15);
-                ctx.lineTo(drawX + 44, drawY - 15);
-                ctx.fill();
-
-                if (treeHealth[nodeKey] && treeHealth[nodeKey].hp < treeHealth[nodeKey].maxHp) {
-                  let pct = Math.max(0, treeHealth[nodeKey].hp / treeHealth[nodeKey].maxHp);
-                  ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-                  ctx.fillRect(drawX + 4, drawY - 65, 40, 6);
-                  ctx.fillStyle = '#2ecc71';
-                  ctx.fillRect(drawX + 5, drawY - 64, 38 * pct, 4);
-                }
-              }
-            });
+            ctx.fillStyle = '#225511';
+            ctx.beginPath();
+            ctx.arc(drawX + DRAW_TILE_SIZE / 2 + shake, drawY + DRAW_TILE_SIZE / 2, DRAW_TILE_SIZE * 0.7, 0, Math.PI * 2);
+            ctx.fill();
           } else if (isRock && !destroyedRocks.has(nodeKey)) {
-            let shakeX = 0;
-            if (rockHealth[nodeKey] && rockHealth[nodeKey].shake > 0) {
-              rockHealth[nodeKey].shake--;
-              shakeX = Math.sin(rockHealth[nodeKey].shake * 1.5) * 4;
-            }
-            let drawX = rawX + shakeX;
-
-            renderQueue.push({
-              y: worldY,
-              draw: () => {
-                drawForestRock(drawX, drawY);
-
-                if (rockHealth[nodeKey] && rockHealth[nodeKey].hp < rockHealth[nodeKey].maxHp) {
-                  let pct = Math.max(0, rockHealth[nodeKey].hp / rockHealth[nodeKey].maxHp);
-                  ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-                  ctx.fillRect(drawX + 4, drawY - 10, 40, 6);
-                  ctx.fillStyle = '#2ecc71';
-                  ctx.fillRect(drawX + 5, drawY - 9, 38 * pct, 4);
-                }
-              }
-            });
+            drawForestRock(drawX, drawY);
           }
         }
       }
 
-      renderQueue.sort((a, b) => a.y - b.y);
-      renderQueue.forEach(item => item.draw());
+      // Draw Ground Items
+      for (let item of worldItems) {
+        let drawX = item.x - cameraX;
+        let drawY = item.y - cameraY;
+        if (drawX > -20 && drawX < canvas.width + 20 && drawY > -20 && drawY < canvas.height + 20) {
+          drawGroundItem(item, drawX, drawY);
+        }
+      }
+
+      // Draw Animals
+      for (let animal of animals) {
+        let drawX = animal.x - cameraX;
+        let drawY = animal.y - cameraY;
+        if (drawX > -40 && drawX < canvas.width + 40 && drawY > -40 && drawY < canvas.height + 40) {
+          drawAnimal(animal, drawX, drawY);
+        }
+      }
+
+      // Draw Projectiles
+      for (let p of projectiles) {
+        let drawX = p.x - cameraX;
+        let drawY = p.y - cameraY;
+        ctx.fillStyle = '#f1c40f';
+        ctx.beginPath();
+        ctx.arc(drawX, drawY, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Draw Remote Players
+      for (let pid in remotePlayers) {
+        if (pid !== player.id) {
+          let rPlayer = remotePlayers[pid];
+          let drawX = rPlayer.x - cameraX;
+          let drawY = rPlayer.y - cameraY;
+          if (drawX > -50 && drawX < canvas.width + 50 && drawY > -50 && drawY < canvas.height + 50) {
+            drawPlayerObject(rPlayer, drawX, drawY);
+          }
+        }
+      }
+
+      // Draw Local Player
+      let localScreenX = player.x - cameraX;
+      let localScreenY = player.y - cameraY;
+      drawPlayerObject(player, localScreenX, localScreenY);
+
+      // Night Tint Overlay
+      if (isNight) {
+        ctx.fillStyle = 'rgba(10, 15, 35, 0.45)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
     }
 
-    function gameLoop() {
+    /* ==========================================================================
+       MAIN LOOP
+       ========================================================================== */
+
+    function loop() {
       update();
       render();
-      requestAnimationFrame(gameLoop);
+      requestAnimationFrame(loop);
     }
 
-    gameLoop();
+    loop();
   </script>
 </body>
 </html>
