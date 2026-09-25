@@ -174,6 +174,32 @@
       transition: width 0.15s;
     }
 
+    /* Top Controls */
+    #top-controls {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      display: flex;
+      gap: 8px;
+      z-index: 10;
+    }
+
+    .ui-top-btn {
+      background: #2b7a4b;
+      color: white;
+      border: 2px solid #fff;
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-family: monospace;
+      font-weight: bold;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    #leave-lobby-btn {
+      background: #c0392b;
+    }
+
     /* Action Buttons */
     #pick-btn {
       display: none;
@@ -261,22 +287,6 @@
     }
 
     /* Inventory & Crafting Modal */
-    #inv-toggle-btn {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      background: #2b7a4b;
-      color: white;
-      border: 2px solid #fff;
-      padding: 8px 14px;
-      border-radius: 6px;
-      font-family: monospace;
-      font-weight: bold;
-      font-size: 14px;
-      cursor: pointer;
-      z-index: 10;
-    }
-
     #inventory-modal {
       display: none;
       position: absolute;
@@ -420,9 +430,13 @@
     <div class="bar-container"><div id="hunger-bar" class="bar-fill-hunger"></div></div>
   </div>
 
+  <div id="top-controls">
+    <button id="inv-toggle-btn" class="ui-top-btn">🎒 INV</button>
+    <button id="leave-lobby-btn" class="ui-top-btn">🚪 LOBBY</button>
+  </div>
+
   <button id="pick-btn">🖐️ PICK</button>
   <button id="eat-btn">🍎 EAT</button>
-  <button id="inv-toggle-btn">🎒 INV</button>
 
   <div id="inventory-modal">
     <div class="inv-header">
@@ -624,7 +638,7 @@
     const animals = [];
 
     /* ==========================================================================
-       LOBBY AND CUSTOM ROOM CODE NETWORKING (PeerJS)
+       LOBBY AND NETWORKING (PeerJS)
        ========================================================================== */
 
     const lobbyStatus = document.getElementById('lobby-status');
@@ -652,7 +666,6 @@
       });
     }
 
-    // Initialize initial default random peer
     peer = new Peer();
     setupPeerEvents();
 
@@ -663,7 +676,6 @@
       let customCode = document.getElementById('custom-room-input').value.trim();
 
       if (customCode) {
-        // Destroy old default peer and create a new one with the custom ID code
         peer.destroy();
         peer = new Peer(customCode);
         setupPeerEvents();
@@ -700,9 +712,44 @@
 
       hostConn.on('close', () => {
         alert("Disconnected from host!");
-        location.reload();
+        returnToLobby();
       });
     });
+
+    // Return to Lobby handler
+    document.getElementById('leave-lobby-btn').addEventListener('click', returnToLobby);
+
+    function returnToLobby() {
+      if (hostConn) {
+        hostConn.close();
+        hostConn = null;
+      }
+      connections.forEach(c => c.close());
+      connections = [];
+      
+      isHost = false;
+      remotePlayers = {};
+
+      document.getElementById('lobby-screen').style.display = 'flex';
+      document.getElementById('multiplayer-status').innerText = 'Mode: Singleplayer';
+      lobbyStatus.innerText = "Left the game. Ready to host or join again!";
+
+      peer.destroy();
+      peer = new Peer();
+      setupPeerEvents();
+    }
+
+    // Dispatch network actions to Host
+    function dispatchAction(actionData) {
+      if (isHost) {
+        processAction(actionData, player.id);
+      } else if (hostConn && hostConn.open) {
+        hostConn.send({
+          type: 'CLIENT_ACTION',
+          action: actionData
+        });
+      }
+    }
 
     function broadcastHostState() {
       if (!isHost) return;
@@ -715,6 +762,7 @@
         structures: structures,
         worldItems: worldItems,
         animals: animals,
+        projectiles: projectiles,
         destroyedTrees: Array.from(destroyedTrees),
         destroyedRocks: Array.from(destroyedRocks),
         players: {
@@ -743,6 +791,8 @@
         name: p.name,
         x: p.x,
         y: p.y,
+        hp: p.hp,
+        maxHp: p.maxHp,
         direction: p.direction,
         isMoving: p.isMoving,
         isSwimming: p.isSwimming,
@@ -750,30 +800,198 @@
         animFrame: p.animFrame,
         punchingTimer: p.punchingTimer,
         invincibleTimer: p.invincibleTimer,
-        activeItem: hotbarItems[activeHotbarIndex]
+        activeItem: p === player ? hotbarItems[activeHotbarIndex] : p.activeItem
       };
     }
 
     function handleIncomingData(data, conn) {
       if (data.type === 'CLIENT_UPDATE' && isHost) {
-        remotePlayers[data.player.id] = data.player;
+        if (remotePlayers[data.player.id]) {
+          // Keep server authoritative HP
+          let currentHp = remotePlayers[data.player.id].hp;
+          remotePlayers[data.player.id] = data.player;
+          remotePlayers[data.player.id].hp = currentHp;
+        } else {
+          remotePlayers[data.player.id] = data.player;
+        }
       } 
+      else if (data.type === 'CLIENT_ACTION' && isHost) {
+        processAction(data.action, conn.peer);
+      }
       else if (data.type === 'HOST_STATE' && !isHost) {
         gameTicks = data.gameTicks;
         dayCount = data.dayCount;
         isNight = data.isNight;
 
+        // Sync structures
+        for (let k in structures) delete structures[k];
         Object.assign(structures, data.structures);
+
+        // Sync world items
         worldItems.length = 0;
         worldItems.push(...data.worldItems);
+
+        // Sync animals
         animals.length = 0;
         animals.push(...data.animals);
+
+        // Sync projectiles
+        projectiles.length = 0;
+        projectiles.push(...data.projectiles);
 
         data.destroyedTrees.forEach(t => destroyedTrees.add(t));
         data.destroyedRocks.forEach(r => destroyedRocks.add(r));
 
+        if (data.players[player.id]) {
+          player.hp = data.players[player.id].hp;
+        }
+
         delete data.players[player.id]; 
         remotePlayers = data.players;
+      }
+    }
+
+    // Authoritative processing on Host
+    function processAction(act, senderId) {
+      if (!isHost) return;
+
+      if (act.type === 'SHOOT_ARROW') {
+        projectiles.push({
+          x: act.x,
+          y: act.y,
+          vx: act.vx,
+          vy: act.vy,
+          life: 90,
+          damage: 20,
+          ownerId: senderId
+        });
+      }
+      else if (act.type === 'ATTACK_PLAYER') {
+        let targetId = act.targetId;
+        if (targetId === player.id) {
+          if (player.invincibleTimer <= 0) {
+            player.hp = Math.max(0, player.hp - act.damage);
+            player.invincibleTimer = 20;
+          }
+        } else if (remotePlayers[targetId]) {
+          if ((remotePlayers[targetId].invincibleTimer || 0) <= 0) {
+            remotePlayers[targetId].hp = Math.max(0, remotePlayers[targetId].hp - act.damage);
+            remotePlayers[targetId].invincibleTimer = 20;
+          }
+        }
+      }
+      else if (act.type === 'REMOVE_STRUCTURE') {
+        if (structures[act.key]) {
+          let struct = structures[act.key];
+          let icon = struct.type === 'Door' ? '🚪' : (struct.type === 'Boat' ? '⛵' : '🚧');
+          worldItems.push({
+            id: Date.now() + Math.random(),
+            name: struct.type,
+            icon: icon,
+            x: act.nodeCenterX - 8,
+            y: act.nodeCenterY - 8,
+            floatSeed: Math.random() * 10
+          });
+          delete structures[act.key];
+        }
+      }
+      else if (act.type === 'PLACE_STRUCTURE') {
+        structures[act.key] = act.structure;
+      }
+      else if (act.type === 'DAMAGE_ANIMAL') {
+        let animal = animals.find(a => a.id === act.animalId);
+        if (animal) {
+          animal.hp -= act.damage;
+          animal.hitTimer = 15;
+          if (animal.hp <= 0) {
+            let dropItem = { name: 'Raw Meat', icon: '🥩' };
+            if (animal.type === 'bear') dropItem = { name: 'Bear Ears', icon: '🐻' };
+            else if (animal.type === 'wolf') dropItem = { name: 'Wolf Fur', icon: '🐺' };
+            else if (animal.type === 'shark') dropItem = { name: 'Shark Scale', icon: '🦈' };
+
+            worldItems.push({
+              id: Date.now() + Math.random(),
+              name: dropItem.name,
+              icon: dropItem.icon,
+              x: animal.x + 8,
+              y: animal.y + 8,
+              floatSeed: Math.random() * 10
+            });
+
+            let idx = animals.indexOf(animal);
+            if (idx > -1) animals.splice(idx, 1);
+          }
+        }
+      }
+      else if (act.type === 'HIT_TREE') {
+        let nodeKey = act.nodeKey;
+        if (!destroyedTrees.has(nodeKey)) {
+          if (!treeHealth[nodeKey]) {
+            treeHealth[nodeKey] = { hp: 16, maxHp: 16, hitTimer: 150, shake: 0 };
+          }
+          treeHealth[nodeKey].hp -= act.damage;
+          treeHealth[nodeKey].hitTimer = 150;
+          treeHealth[nodeKey].shake = 10;
+
+          if (treeHealth[nodeKey].hp <= 0) {
+            destroyedTrees.add(nodeKey);
+            delete treeHealth[nodeKey];
+
+            worldItems.push({
+              id: Date.now() + Math.random(),
+              name: 'Wood',
+              icon: '🪵',
+              x: act.nodeCenterX - 8,
+              y: act.nodeCenterY - 8,
+              floatSeed: Math.random() * 10
+            });
+
+            if (Math.random() < 0.25) {
+              worldItems.push({
+                id: Date.now() + Math.random() + 1,
+                name: 'Apple',
+                icon: '🍎',
+                x: act.nodeCenterX + 8,
+                y: act.nodeCenterY + 8,
+                floatSeed: Math.random() * 10
+              });
+            }
+          }
+        }
+      }
+      else if (act.type === 'HIT_ROCK') {
+        let nodeKey = act.nodeKey;
+        if (!destroyedRocks.has(nodeKey)) {
+          if (!rockHealth[nodeKey]) {
+            rockHealth[nodeKey] = { hp: 12, maxHp: 12, hitTimer: 150, shake: 0 };
+          }
+          rockHealth[nodeKey].hp -= 4;
+          rockHealth[nodeKey].hitTimer = 150;
+          rockHealth[nodeKey].shake = 10;
+
+          if (rockHealth[nodeKey].hp <= 0) {
+            destroyedRocks.add(nodeKey);
+            delete rockHealth[nodeKey];
+
+            worldItems.push({
+              id: Date.now() + Math.random(),
+              name: 'Stone',
+              icon: '🪨',
+              x: act.nodeCenterX,
+              y: act.nodeCenterY,
+              floatSeed: Math.random() * 10
+            });
+          }
+        }
+      }
+      else if (act.type === 'PICKUP_ITEM') {
+        let idx = worldItems.findIndex(i => i.id === act.itemId);
+        if (idx > -1) {
+          worldItems.splice(idx, 1);
+        }
+      }
+      else if (act.type === 'DROP_ITEM') {
+        worldItems.push(act.item);
       }
     }
 
@@ -1099,13 +1317,16 @@
           sourceArr[draggedSource.index] = temp;
         }
       } else {
-        worldItems.push({
-          id: Date.now() + Math.random(),
-          name: draggedItem.name,
-          icon: draggedItem.icon,
-          x: player.x + (Math.random() * 20 - 10),
-          y: player.y + (Math.random() * 20 - 10),
-          floatSeed: Math.random() * 10
+        dispatchAction({
+          type: 'DROP_ITEM',
+          item: {
+            id: Date.now() + Math.random(),
+            name: draggedItem.name,
+            icon: draggedItem.icon,
+            x: player.x + (Math.random() * 20 - 10),
+            y: player.y + (Math.random() * 20 - 10),
+            floatSeed: Math.random() * 10
+          }
         });
 
         draggedItem.count -= 1;
@@ -1146,8 +1367,10 @@
     pickBtn.addEventListener('click', () => {
       if (!nearestItem) return;
       if (addItemToInventory(nearestItem.name, nearestItem.icon, 1)) {
-        let idx = worldItems.indexOf(nearestItem);
-        if (idx > -1) worldItems.splice(idx, 1);
+        dispatchAction({
+          type: 'PICKUP_ITEM',
+          itemId: nearestItem.id
+        });
         nearestItem = null;
         pickBtn.style.display = 'none';
         updateInventoryUI();
@@ -1175,6 +1398,7 @@
       }
     });
 
+    // Player Interaction & Attacks
     canvas.addEventListener('pointerdown', e => {
       if (invModal.classList.contains('active')) return;
       if (player.actionCooldown > 0) return;
@@ -1198,19 +1422,20 @@
       let nodeCenterY = targetTy * DRAW_TILE_SIZE + DRAW_TILE_SIZE / 2;
       let dist = Math.hypot(player.x - nodeCenterX, player.y - nodeCenterY);
 
+      // Bow Ranged Attack
       if (activeItem && activeItem.name === 'Bow') {
         let arrowCount = getItemCount('Arrow');
         if (arrowCount > 0) {
           removeItemByName('Arrow', 1);
 
           let angle = Math.atan2(clickWorldY - (player.y + DRAW_TILE_SIZE / 2), clickWorldX - (player.x + DRAW_TILE_SIZE / 2));
-          projectiles.push({
+          
+          dispatchAction({
+            type: 'SHOOT_ARROW',
             x: player.x + DRAW_TILE_SIZE / 2,
             y: player.y + DRAW_TILE_SIZE / 2,
             vx: Math.cos(angle) * 7,
-            vy: Math.sin(angle) * 7,
-            life: 90,
-            damage: 20
+            vy: Math.sin(angle) * 7
           });
 
           player.actionCooldown = 20;
@@ -1220,32 +1445,59 @@
         }
       }
 
+      // Check PvP Melee Attacks
+      let pvpTargets = [];
+      if (!isHost) {
+        // Host target
+        if (remotePlayers[myPlayerId] === undefined) {
+          // Find Host player via remotePlayers or state
+        }
+      }
+      
+      let allOtherPlayers = [];
+      for (let pid in remotePlayers) {
+        if (pid !== player.id) {
+          allOtherPlayers.push(remotePlayers[pid]);
+        }
+      }
+
+      for (let otherP of allOtherPlayers) {
+        let distClickToP = Math.hypot(clickWorldX - (otherP.x + 16), clickWorldY - (otherP.y + 16));
+        let distSelfToP = Math.hypot(player.x - otherP.x, player.y - otherP.y);
+
+        if (distClickToP < 40 && distSelfToP < 90) {
+          player.punchingTimer = 12;
+          player.actionCooldown = 20;
+          let dmg = (activeItem && activeItem.name === 'Sword') ? 15 : 8;
+
+          dispatchAction({
+            type: 'ATTACK_PLAYER',
+            targetId: otherP.id,
+            damage: dmg
+          });
+          return;
+        }
+      }
+
+      // Structure Removal
       if (structures[nodeKey] && dist < 100) {
-        let struct = structures[nodeKey];
         player.punchingTimer = 12;
         player.actionCooldown = 15;
 
-        let icon = '🚧';
-        if (struct.type === 'Door') icon = '🚪';
-        if (struct.type === 'Boat') icon = '⛵';
-
-        worldItems.push({
-          id: Date.now() + Math.random(),
-          name: struct.type,
-          icon: icon,
-          x: nodeCenterX - 8,
-          y: nodeCenterY - 8,
-          floatSeed: Math.random() * 10
+        dispatchAction({
+          type: 'REMOVE_STRUCTURE',
+          key: nodeKey,
+          nodeCenterX: nodeCenterX,
+          nodeCenterY: nodeCenterY
         });
 
-        if (struct.type === 'Boat' && player.isRidingBoat) {
+        if (structures[nodeKey].type === 'Boat' && player.isRidingBoat) {
           player.isRidingBoat = false;
         }
-
-        delete structures[nodeKey];
         return;
       }
 
+      // Structure Placement
       if (activeItem && (activeItem.name === 'Fence' || activeItem.name === 'Door' || activeItem.name === 'Boat')) {
         if (targetTx === pTileX && targetTy === pTileY) return;
 
@@ -1254,16 +1506,21 @@
 
           if (activeItem.name === 'Boat') {
             if (tile === BIOMES.WATER) {
-              structures[nodeKey] = {
-                type: 'Boat',
-                tx: targetTx,
-                ty: targetTy,
-                x: targetTx * DRAW_TILE_SIZE,
-                y: targetTy * DRAW_TILE_SIZE,
-                hp: 1,
-                maxHp: 1,
-                blockedMobs: 0
-              };
+              dispatchAction({
+                type: 'PLACE_STRUCTURE',
+                key: nodeKey,
+                structure: {
+                  type: 'Boat',
+                  tx: targetTx,
+                  ty: targetTy,
+                  x: targetTx * DRAW_TILE_SIZE,
+                  y: targetTy * DRAW_TILE_SIZE,
+                  hp: 1,
+                  maxHp: 1,
+                  blockedMobs: 0
+                }
+              });
+
               activeItem.count -= 1;
               if (activeItem.count <= 0) hotbarItems[activeHotbarIndex] = null;
               player.actionCooldown = 15;
@@ -1272,17 +1529,21 @@
             }
           } else {
             if (tile !== BIOMES.WATER) {
-              structures[nodeKey] = {
-                type: activeItem.name,
-                tx: targetTx,
-                ty: targetTy,
-                x: targetTx * DRAW_TILE_SIZE,
-                y: targetTy * DRAW_TILE_SIZE,
-                hp: BASE_FENCE_DURABILITY,
-                maxHp: BASE_FENCE_DURABILITY,
-                blockedMobs: 0,
-                isOpen: false
-              };
+              dispatchAction({
+                type: 'PLACE_STRUCTURE',
+                key: nodeKey,
+                structure: {
+                  type: activeItem.name,
+                  tx: targetTx,
+                  ty: targetTy,
+                  x: targetTx * DRAW_TILE_SIZE,
+                  y: targetTy * DRAW_TILE_SIZE,
+                  hp: BASE_FENCE_DURABILITY,
+                  maxHp: BASE_FENCE_DURABILITY,
+                  blockedMobs: 0,
+                  isOpen: false
+                }
+              });
 
               activeItem.count -= 1;
               if (activeItem.count <= 0) hotbarItems[activeHotbarIndex] = null;
@@ -1294,6 +1555,7 @@
         }
       }
 
+      // Animal Attacks
       for (let i = animals.length - 1; i >= 0; i--) {
         let animal = animals[i];
         let distToMob = Math.hypot(clickWorldX - (animal.x + 12), clickWorldY - (animal.y + 12));
@@ -1304,26 +1566,11 @@
           player.actionCooldown = 20;
 
           let dmg = (activeItem && activeItem.name === 'Sword') ? 10 : 5;
-          animal.hp -= dmg;
-          animal.hitTimer = 15;
-
-          if (animal.hp <= 0) {
-            let dropItem = { name: 'Raw Meat', icon: '🥩' };
-            if (animal.type === 'bear') dropItem = { name: 'Bear Ears', icon: '🐻' };
-            else if (animal.type === 'wolf') dropItem = { name: 'Wolf Fur', icon: '🐺' };
-            else if (animal.type === 'shark') dropItem = { name: 'Shark Scale', icon: '🦈' };
-
-            worldItems.push({
-              id: Date.now() + Math.random(),
-              name: dropItem.name,
-              icon: dropItem.icon,
-              x: animal.x + 8,
-              y: animal.y + 8,
-              floatSeed: Math.random() * 10
-            });
-
-            animals.splice(i, 1);
-          }
+          dispatchAction({
+            type: 'DAMAGE_ANIMAL',
+            animalId: animal.id,
+            damage: dmg
+          });
           return;
         }
       }
@@ -1340,39 +1587,13 @@
           player.actionCooldown = 28;
 
           let damage = (activeItem && activeItem.name === 'Axe') ? 4 : 1;
-
-          if (!treeHealth[nodeKey]) {
-            treeHealth[nodeKey] = { hp: 16, maxHp: 16, hitTimer: 150, shake: 0 };
-          }
-
-          treeHealth[nodeKey].hp -= damage;
-          treeHealth[nodeKey].hitTimer = 150;
-          treeHealth[nodeKey].shake = 10;
-
-          if (treeHealth[nodeKey].hp <= 0) {
-            destroyedTrees.add(nodeKey);
-            delete treeHealth[nodeKey];
-
-            worldItems.push({
-              id: Date.now() + Math.random(),
-              name: 'Wood',
-              icon: '🪵',
-              x: nodeCenterX - 8,
-              y: nodeCenterY - 8,
-              floatSeed: Math.random() * 10
-            });
-
-            if (Math.random() < 0.25) {
-              worldItems.push({
-                id: Date.now() + Math.random() + 1,
-                name: 'Apple',
-                icon: '🍎',
-                x: nodeCenterX + 8,
-                y: nodeCenterY + 8,
-                floatSeed: Math.random() * 10
-              });
-            }
-          }
+          dispatchAction({
+            type: 'HIT_TREE',
+            nodeKey: nodeKey,
+            nodeCenterX: nodeCenterX,
+            nodeCenterY: nodeCenterY,
+            damage: damage
+          });
         }
         else if (isRock && !destroyedRocks.has(nodeKey)) {
           if (!activeItem || activeItem.name !== 'Pickaxe') {
@@ -1384,27 +1605,12 @@
           player.punchingTimer = 12;
           player.actionCooldown = 28;
 
-          if (!rockHealth[nodeKey]) {
-            rockHealth[nodeKey] = { hp: 12, maxHp: 12, hitTimer: 150, shake: 0 };
-          }
-
-          rockHealth[nodeKey].hp -= 4;
-          rockHealth[nodeKey].hitTimer = 150;
-          rockHealth[nodeKey].shake = 10;
-
-          if (rockHealth[nodeKey].hp <= 0) {
-            destroyedRocks.add(nodeKey);
-            delete rockHealth[nodeKey];
-
-            worldItems.push({
-              id: Date.now() + Math.random(),
-              name: 'Stone',
-              icon: '🪨',
-              x: nodeCenterX,
-              y: nodeCenterY,
-              floatSeed: Math.random() * 10
-            });
-          }
+          dispatchAction({
+            type: 'HIT_ROCK',
+            nodeKey: nodeKey,
+            nodeCenterX: nodeCenterX,
+            nodeCenterY: nodeCenterY
+          });
         } else {
           player.punchingTimer = 10;
           player.actionCooldown = 22;
@@ -1593,6 +1799,66 @@
           }
         });
 
+        // Projectile collisions on Host
+        for (let i = projectiles.length - 1; i >= 0; i--) {
+          let p = projectiles[i];
+          p.x += p.vx;
+          p.y += p.vy;
+          p.life--;
+
+          // Check hit animals
+          for (let j = animals.length - 1; j >= 0; j--) {
+            let a = animals[j];
+            let dist = Math.hypot(p.x - (a.x + 12), p.y - (a.y + 12));
+            if (dist < 18) {
+              a.hp -= p.damage;
+              a.hitTimer = 12;
+
+              if (a.hp <= 0) {
+                let dropItem = { name: 'Raw Meat', icon: '🥩' };
+                if (a.type === 'bear') dropItem = { name: 'Bear Ears', icon: '🐻' };
+                else if (a.type === 'wolf') dropItem = { name: 'Wolf Fur', icon: '🐺' };
+                else if (a.type === 'shark') dropItem = { name: 'Shark Scale', icon: '🦈' };
+
+                worldItems.push({
+                  id: Date.now() + Math.random(),
+                  name: dropItem.name,
+                  icon: dropItem.icon,
+                  x: a.x + 8,
+                  y: a.y + 8,
+                  floatSeed: Math.random() * 10
+                });
+
+                animals.splice(j, 1);
+              }
+
+              projectiles.splice(i, 1);
+              break;
+            }
+          }
+
+          // Check PvP hit players
+          let allTargets = [player, ...Object.values(remotePlayers)];
+          for (let targetP of allTargets) {
+            if (targetP.id !== p.ownerId) {
+              let dist = Math.hypot(p.x - (targetP.x + 16), p.y - (targetP.y + 16));
+              if (dist < 20) {
+                if (targetP.id === player.id) {
+                  player.hp = Math.max(0, player.hp - p.damage);
+                } else if (remotePlayers[targetP.id]) {
+                  remotePlayers[targetP.id].hp = Math.max(0, remotePlayers[targetP.id].hp - p.damage);
+                }
+                projectiles.splice(i, 1);
+                break;
+              }
+            }
+          }
+
+          if (p.life <= 0 && projectiles[i]) {
+            projectiles.splice(i, 1);
+          }
+        }
+
         broadcastHostState();
       } else {
         sendClientState();
@@ -1605,47 +1871,6 @@
       let icon = isNight ? '🌙' : '☀️';
       document.getElementById('time-display').innerText = `${icon} Day ${dayCount} (${timeStr})`;
       document.getElementById('time-display').style.color = isNight ? '#9b59b6' : '#f39c12';
-
-      for (let i = projectiles.length - 1; i >= 0; i--) {
-        let p = projectiles[i];
-        p.x += p.vx;
-        p.y += p.vy;
-        p.life--;
-
-        for (let j = animals.length - 1; j >= 0; j--) {
-          let a = animals[j];
-          let dist = Math.hypot(p.x - (a.x + 12), p.y - (a.y + 12));
-          if (dist < 18) {
-            a.hp -= p.damage;
-            a.hitTimer = 12;
-
-            if (a.hp <= 0) {
-              let dropItem = { name: 'Raw Meat', icon: '🥩' };
-              if (a.type === 'bear') dropItem = { name: 'Bear Ears', icon: '🐻' };
-              else if (a.type === 'wolf') dropItem = { name: 'Wolf Fur', icon: '🐺' };
-              else if (a.type === 'shark') dropItem = { name: 'Shark Scale', icon: '🦈' };
-
-              worldItems.push({
-                id: Date.now() + Math.random(),
-                name: dropItem.name,
-                icon: dropItem.icon,
-                x: a.x + 8,
-                y: a.y + 8,
-                floatSeed: Math.random() * 10
-              });
-
-              animals.splice(j, 1);
-            }
-
-            projectiles.splice(i, 1);
-            break;
-          }
-        }
-
-        if (p.life <= 0) {
-          projectiles.splice(i, 1);
-        }
-      }
 
       let moveX = 0;
       let moveY = 0;
@@ -1899,7 +2124,15 @@
       ctx.fillStyle = '#ffffff';
       ctx.font = '10px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(p.name || 'Player', 16, -6);
+      ctx.fillText(p.name || 'Player', 16, -14);
+
+      // Render player health bar overhead
+      if (p.hp < p.maxHp) {
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(-2, -10, 36, 5);
+        ctx.fillStyle = '#e74c3c';
+        ctx.fillRect(-1, -9, 34 * Math.max(0, p.hp / p.maxHp), 3);
+      }
 
       const px = 1.8;
 
@@ -2192,6 +2425,16 @@
       ctx.restore();
     }
 
+    function drawProjectile(p, screenX, screenY) {
+      ctx.save();
+      ctx.translate(screenX, screenY);
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(0, 0, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
     function render() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -2276,6 +2519,17 @@
         });
       });
 
+      projectiles.forEach(p => {
+        renderQueue.push({
+          y: p.y,
+          draw: () => {
+            let screenX = Math.floor(p.x - cameraX);
+            let screenY = Math.floor(p.y - cameraY);
+            drawProjectile(p, screenX, screenY);
+          }
+        });
+      });
+
       for (let tx = startTileX; tx <= endTileX; tx++) {
         for (let ty = startTileY; ty <= endTileY; ty++) {
           let nodeKey = `${tx},${ty}`;
@@ -2354,9 +2608,9 @@
                 if (rockHealth[nodeKey] && rockHealth[nodeKey].hp < rockHealth[nodeKey].maxHp) {
                   let pct = Math.max(0, rockHealth[nodeKey].hp / rockHealth[nodeKey].maxHp);
                   ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-                  ctx.fillRect(drawX + 4, drawY, 40, 6);
-                  ctx.fillStyle = '#e67e22';
-                  ctx.fillRect(drawX + 5, drawY + 1, 38 * pct, 4);
+                  ctx.fillRect(drawX + 4, drawY - 10, 40, 6);
+                  ctx.fillStyle = '#2ecc71';
+                  ctx.fillRect(drawX + 5, drawY - 9, 38 * pct, 4);
                 }
               }
             });
@@ -2366,29 +2620,6 @@
 
       renderQueue.sort((a, b) => a.y - b.y);
       renderQueue.forEach(item => item.draw());
-
-      projectiles.forEach(p => {
-        let px = Math.floor(p.x - cameraX);
-        let py = Math.floor(p.y - cameraY);
-        ctx.fillStyle = '#ffd700';
-        ctx.fillRect(px - 2, py - 2, 4, 4);
-      });
-
-      let cycleProgress = (gameTicks % CYCLE_LENGTH) / CYCLE_LENGTH;
-      let nightAlpha = 0;
-
-      if (cycleProgress > 0.45 && cycleProgress <= 0.55) {
-        nightAlpha = (cycleProgress - 0.45) * 6.5;
-      } else if (cycleProgress > 0.55 && cycleProgress <= 0.9) {
-        nightAlpha = 0.65;
-      } else if (cycleProgress > 0.9) {
-        nightAlpha = (1 - cycleProgress) * 6.5;
-      }
-
-      if (nightAlpha > 0) {
-        ctx.fillStyle = `rgba(5, 10, 35, ${Math.min(0.68, nightAlpha)})`;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-      }
     }
 
     function gameLoop() {
@@ -2397,8 +2628,7 @@
       requestAnimationFrame(gameLoop);
     }
 
-    updateInventoryUI();
-    requestAnimationFrame(gameLoop);
+    gameLoop();
   </script>
 </body>
 </html>
