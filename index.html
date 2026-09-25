@@ -1,0 +1,2404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>2D Pixel Open World RPG - Multiplayer</title>
+  <!-- PeerJS CDN for WebRTC Multiplayer -->
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #111;
+      font-family: monospace;
+    }
+    canvas {
+      display: block;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+
+    /* Multiplayer Lobby Styling */
+    #lobby-screen {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(15, 15, 20, 0.95);
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+    }
+
+    .lobby-card {
+      background: #222;
+      border: 3px solid #444;
+      border-radius: 12px;
+      padding: 24px;
+      width: 340px;
+      text-align: center;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.8);
+    }
+
+    .lobby-card h1 {
+      color: #2ecc71;
+      font-size: 20px;
+      margin-bottom: 16px;
+    }
+
+    .lobby-input {
+      width: 100%;
+      padding: 10px;
+      margin: 8px 0;
+      border-radius: 6px;
+      border: 1px solid #555;
+      background: #111;
+      color: #fff;
+      font-family: monospace;
+      font-size: 14px;
+      text-align: center;
+    }
+
+    .lobby-btn {
+      width: 100%;
+      padding: 12px;
+      margin-top: 8px;
+      border: none;
+      border-radius: 6px;
+      font-family: monospace;
+      font-weight: bold;
+      font-size: 14px;
+      cursor: pointer;
+      color: white;
+      transition: background 0.2s;
+    }
+
+    .btn-host { background: #27ae60; }
+    .btn-host:hover { background: #2ecc71; }
+    .btn-join { background: #2980b9; }
+    .btn-join:hover { background: #3498db; }
+
+    #lobby-status {
+      margin-top: 14px;
+      font-size: 12px;
+      color: #f1c40f;
+      min-height: 16px;
+    }
+
+    /* Existing UI Extensions */
+    #multiplayer-status {
+      margin-top: 4px;
+      font-size: 11px;
+      color: #2ecc71;
+    }
+
+    /* Touch Joystick Styling */
+    #joystick-container {
+      position: absolute;
+      bottom: 25px;
+      left: 25px;
+      width: 110px;
+      height: 110px;
+      background: rgba(255, 255, 255, 0.15);
+      border: 3px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      touch-action: none;
+      z-index: 10;
+    }
+    #joystick-thumb {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 45px;
+      height: 45px;
+      background: rgba(255, 255, 255, 0.6);
+      border: 2px solid #fff;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+
+    /* UI Overlay */
+    #ui {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: #fff;
+      text-shadow: 1px 1px 3px #000;
+      z-index: 10;
+      font-size: 13px;
+      pointer-events: none;
+      background: rgba(0, 0, 0, 0.6);
+      padding: 10px 14px;
+      border-radius: 8px;
+    }
+
+    .bar-label {
+      font-size: 11px;
+      margin-top: 4px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .bar-container {
+      width: 140px;
+      height: 10px;
+      background: #333;
+      border: 1px solid #777;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 2px;
+    }
+    .bar-fill-hp {
+      height: 100%;
+      background: #e74c3c;
+      width: 100%;
+      transition: width 0.15s;
+    }
+    .bar-fill-hunger {
+      height: 100%;
+      background: #e67e22;
+      width: 100%;
+      transition: width 0.15s;
+    }
+
+    /* Action Buttons */
+    #pick-btn {
+      display: none;
+      position: absolute;
+      bottom: 150px;
+      left: 25px;
+      background: #e67e22;
+      color: white;
+      border: 2px solid #fff;
+      padding: 8px 14px;
+      border-radius: 20px;
+      font-family: monospace;
+      font-weight: bold;
+      font-size: 13px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+      cursor: pointer;
+      z-index: 12;
+      touch-action: manipulation;
+    }
+
+    #eat-btn {
+      display: none;
+      position: absolute;
+      bottom: 85px;
+      right: 20px;
+      background: #27ae60;
+      color: white;
+      border: 2px solid #fff;
+      padding: 8px 14px;
+      border-radius: 20px;
+      font-family: monospace;
+      font-weight: bold;
+      font-size: 13px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+      cursor: pointer;
+      z-index: 12;
+      touch-action: manipulation;
+    }
+
+    /* Hotbar */
+    #hotbar {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      display: flex;
+      gap: 8px;
+      z-index: 10;
+    }
+    .slot {
+      width: 50px;
+      height: 50px;
+      background: rgba(0, 0, 0, 0.75);
+      border: 2px solid #777;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      color: #fff;
+      position: relative;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+    .slot.active {
+      border-color: #ffd700;
+      box-shadow: 0 0 10px #ffd700;
+    }
+    .slot-num {
+      position: absolute;
+      top: 2px;
+      left: 4px;
+      font-size: 10px;
+      color: #aaa;
+      pointer-events: none;
+    }
+    .slot-count {
+      position: absolute;
+      bottom: 2px;
+      right: 4px;
+      font-size: 11px;
+      font-weight: bold;
+      color: #fff;
+      text-shadow: 1px 1px 2px #000;
+      pointer-events: none;
+    }
+
+    /* Inventory & Crafting Modal */
+    #inv-toggle-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: #2b7a4b;
+      color: white;
+      border: 2px solid #fff;
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-family: monospace;
+      font-weight: bold;
+      font-size: 14px;
+      cursor: pointer;
+      z-index: 10;
+    }
+
+    #inventory-modal {
+      display: none;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 500px;
+      max-width: 95vw;
+      background: rgba(20, 20, 20, 0.95);
+      border: 3px solid #555;
+      border-radius: 10px;
+      padding: 15px;
+      color: #fff;
+      z-index: 20;
+    }
+    #inventory-modal.active {
+      display: block;
+    }
+    .inv-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      border-bottom: 1px solid #444;
+      padding-bottom: 6px;
+    }
+
+    .tab-bar {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 6px;
+      background: #333;
+      border: 1px solid #555;
+      color: #ccc;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 12px;
+      text-align: center;
+    }
+    .tab-btn.active {
+      background: #27ae60;
+      color: #fff;
+      border-color: #2ecc71;
+      font-weight: bold;
+    }
+
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+
+    .inv-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .craft-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    .craft-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #2a2a2a;
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid #444;
+    }
+    .craft-btn {
+      background: #d35400;
+      color: #fff;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-family: monospace;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    .craft-btn:disabled {
+      background: #555;
+      color: #888;
+      cursor: not-allowed;
+    }
+
+    #drag-ghost {
+      position: absolute;
+      pointer-events: none;
+      font-size: 28px;
+      z-index: 100;
+      display: none;
+      transform: translate(-50%, -50%);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Lobby Overlay -->
+  <div id="lobby-screen">
+    <div class="lobby-card">
+      <h1>2D RPG MULTIPLAYER</h1>
+      
+      <input type="text" id="player-name" class="lobby-input" placeholder="Enter Your Name" value="Player">
+      <hr style="border-color: #444; margin: 12px 0;">
+
+      <!-- Custom Room Code Input for Host -->
+      <input type="text" id="custom-room-input" class="lobby-input" placeholder="Custom Room Code (Optional)">
+      <button id="host-btn" class="lobby-btn btn-host">HOST NEW WORLD</button>
+
+      <div style="margin: 12px 0; color: #888; font-size: 12px;">— OR —</div>
+
+      <input type="text" id="room-id-input" class="lobby-input" placeholder="Enter Room ID to Join">
+      <button id="join-btn" class="lobby-btn btn-join">JOIN WORLD</button>
+
+      <div id="lobby-status">Initializing connection utility...</div>
+    </div>
+  </div>
+
+  <div id="ui">
+    <div><strong>2D Pixel RPG World</strong></div>
+    <div id="coords">X: 0, Y: 0</div>
+    <div id="biome">Biome: Plains</div>
+    <div id="time-display" style="color: #f39c12; font-weight: bold;">☀️ Day 1 (12:00)</div>
+    <div id="multiplayer-status">Mode: Singleplayer</div>
+
+    <div class="bar-label"><span>❤️ Health</span><span id="hp-txt">100/100</span></div>
+    <div class="bar-container"><div id="hp-bar" class="bar-fill-hp"></div></div>
+
+    <div class="bar-label"><span>🍖 Hunger</span><span id="hunger-txt">100/100</span></div>
+    <div class="bar-container"><div id="hunger-bar" class="bar-fill-hunger"></div></div>
+  </div>
+
+  <button id="pick-btn">🖐️ PICK</button>
+  <button id="eat-btn">🍎 EAT</button>
+  <button id="inv-toggle-btn">🎒 INV</button>
+
+  <div id="inventory-modal">
+    <div class="inv-header">
+      <span><strong>MENU & CRAFTING</strong></span>
+      <span id="inv-close" style="cursor:pointer; font-weight:bold;">✕</span>
+    </div>
+
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="tab-inv">🎒 Inventory</button>
+      <button class="tab-btn" data-tab="tab-craft">🔨 Crafting</button>
+      <button class="tab-btn" data-tab="tab-furnace">🧱 Furnace / Cooking</button>
+    </div>
+
+    <div class="tab-content active" id="tab-inv">
+      <div style="font-size: 11px; margin-bottom: 8px; color: #aaa;">INVENTORY SLOTS (Max 15 / slot, Arrows ∞)</div>
+      <div class="inv-grid" id="inv-grid"></div>
+    </div>
+
+    <div class="tab-content" id="tab-craft">
+      <div style="font-size: 11px; margin-bottom: 8px; color: #aaa;">CRAFTING RECIPES</div>
+      <div class="craft-list" id="craft-list"></div>
+    </div>
+
+    <div class="tab-content" id="tab-furnace">
+      <div style="font-size: 11px; margin-bottom: 8px; color: #aaa;">FURNACE COOKING</div>
+      <div class="craft-list" id="cooking-list"></div>
+    </div>
+  </div>
+
+  <div id="hotbar">
+    <div class="slot active" data-type="hotbar" data-index="0"><span class="slot-num">1</span></div>
+    <div class="slot" data-type="hotbar" data-index="1"><span class="slot-num">2</span></div>
+    <div class="slot" data-type="hotbar" data-index="2"><span class="slot-num">3</span></div>
+    <div class="slot" data-type="hotbar" data-index="3"><span class="slot-num">4</span></div>
+  </div>
+
+  <div id="joystick-container">
+    <div id="joystick-thumb"></div>
+  </div>
+
+  <div id="drag-ghost"></div>
+
+  <canvas id="gameCanvas"></canvas>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const TILE_SIZE = 16;
+    const SCALE = 3;
+    const DRAW_TILE_SIZE = TILE_SIZE * SCALE;
+    const MAX_STACK = 15;
+
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      ctx.imageSmoothingEnabled = false;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // PeerJS & Multiplayer State
+    let peer = null;
+    let connections = []; 
+    let hostConn = null;  
+    let isHost = false;
+    let myPlayerId = 'p_' + Math.floor(Math.random() * 10000);
+    let myPlayerName = "Player";
+    let remotePlayers = {};
+
+    // Noise functions
+    function pseudoRandom(x, y) {
+      let n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+      return n - Math.floor(n);
+    }
+
+    function smoothNoise(x, y) {
+      let corners = (pseudoRandom(x-1, y-1) + pseudoRandom(x+1, y-1) + pseudoRandom(x-1, y+1) + pseudoRandom(x+1, y+1)) / 16;
+      let sides   = (pseudoRandom(x-1, y) + pseudoRandom(x+1, y) + pseudoRandom(x, y-1) + pseudoRandom(x+1, y)) / 8;
+      let center  =  pseudoRandom(x, y) / 4;
+      return corners + sides + center;
+    }
+
+    function interpolatedNoise(x, y) {
+      let intX = Math.floor(x);
+      let fracX = x - intX;
+      let intY = Math.floor(y);
+      let fracY = y - intY;
+
+      let v1 = smoothNoise(intX, intY);
+      let v2 = smoothNoise(intX + 1, intY);
+      let v3 = smoothNoise(intX, intY + 1);
+      let v4 = smoothNoise(intX + 1, intY + 1);
+
+      let i1 = v1 * (1 - fracX) + v2 * fracX;
+      let i2 = v3 * (1 - fracX) + v4 * fracX;
+
+      return i1 * (1 - fracY) + i2 * fracY;
+    }
+
+    function getElevation(x, y) {
+      let total = 0;
+      let frequency = 0.08;
+      let amplitude = 1;
+      let maxValue = 0;
+
+      for (let i = 0; i < 3; i++) {
+        total += interpolatedNoise(x * frequency, y * frequency) * amplitude;
+        maxValue += amplitude;
+        amplitude *= 0.5;
+        frequency *= 2;
+      }
+      return total / maxValue;
+    }
+
+    const BIOMES = {
+      WATER: { name: 'Pond / Lake', color: '#2b65ec' },
+      SAND: { name: 'Beach', color: '#e3c472' },
+      PLAINS: { name: 'Plains', color: '#55a846' },
+      FOREST: { name: 'Dense Forest', color: '#3b832e' },
+      MOUNTAIN: { name: 'Mountains', color: '#757882' },
+      SNOW: { name: 'Snowy Peak', color: '#eaf0f6' }
+    };
+
+    function getTile(x, y) {
+      let e = getElevation(x, y);
+      if (e < 0.38) return BIOMES.WATER;
+      if (e < 0.44) return BIOMES.SAND;
+      if (e < 0.62) return BIOMES.PLAINS;
+      if (e < 0.78) return BIOMES.FOREST;
+      if (e < 0.88) return BIOMES.MOUNTAIN;
+      return BIOMES.SNOW;
+    }
+
+    let gameTicks = 0;
+    const CYCLE_LENGTH = 36000; 
+    let isNight = false;
+    let dayCount = 1;
+
+    const player = {
+      id: myPlayerId,
+      name: myPlayerName,
+      x: 0,
+      y: 0,
+      baseSpeed: 0.9,
+      speed: 0.9,
+      isSwimming: false,
+      isRidingBoat: false,
+      direction: 'down',
+      isMoving: false,
+      animFrame: 0,
+      animTimer: 0,
+      punchingTimer: 0,
+      actionCooldown: 0,
+      hp: 100,
+      maxHp: 100,
+      hunger: 100,
+      maxHunger: 100,
+      hungerTimer: 0,
+      starveTimer: 0,
+      invincibleTimer: 0
+    };
+
+    let activeHotbarIndex = 0;
+    const hotbarItems = [null, null, null, null];
+    const inventoryItems = Array(9).fill(null);
+
+    const treeHealth = {};
+    const destroyedTrees = new Set();
+    const rockHealth = {};
+    const destroyedRocks = new Set();
+
+    const BASE_FENCE_DURABILITY = 18000;
+    const structures = {};
+    const projectiles = [];
+
+    const worldItems = [
+      { id: 1, name: 'Apple', icon: '🍎', x: 25, y: 25, floatSeed: 0 }
+    ];
+
+    let nearestItem = null;
+
+    const RECIPES = [
+      { name: 'Fence', icon: '🚧', req: { Wood: 4 }, yieldCount: 1 },
+      { name: 'Door', icon: '🚪', req: { Wood: 6 }, yieldCount: 1 },
+      { name: 'Boat', icon: '⛵', req: { Wood: 5 }, yieldCount: 1 },
+      { name: 'Bow', icon: '🏹', req: { Wood: 5, 'Wolf Fur': 3 }, yieldCount: 1 },
+      { name: 'Arrow', icon: '🏹', req: { Wood: 1 }, yieldCount: 5 },
+      { name: 'Axe', icon: '🪓', req: { Stone: 6, Wood: 2 }, yieldCount: 1 },
+      { name: 'Pickaxe', icon: '⛏️', req: { Wood: 8 }, yieldCount: 1 },
+      { name: 'Sword', icon: '🗡️', req: { Stone: 5, Wood: 3 }, yieldCount: 1 },
+      { name: 'Furnace', icon: '🧱', req: { Stone: 8 }, yieldCount: 1 }
+    ];
+
+    const COOKING_RECIPES = [
+      { name: 'Cooked Meat', icon: '🍖', req: { 'Raw Meat': 1, Wood: 1 } }
+    ];
+
+    const animals = [];
+
+    /* ==========================================================================
+       LOBBY AND CUSTOM ROOM CODE NETWORKING (PeerJS)
+       ========================================================================== */
+
+    const lobbyStatus = document.getElementById('lobby-status');
+
+    function setupPeerEvents() {
+      peer.on('open', (id) => {
+        myPlayerId = id;
+        player.id = id;
+        lobbyStatus.innerText = "Ready! Host with a custom code or join a room.";
+      });
+
+      peer.on('connection', (conn) => {
+        if (!isHost) return; 
+        connections.push(conn);
+
+        conn.on('data', (data) => handleIncomingData(data, conn));
+
+        conn.on('close', () => {
+          connections = connections.filter(c => c !== conn);
+        });
+      });
+
+      peer.on('error', (err) => {
+        lobbyStatus.innerText = "Error: " + err.type + " (Room code might be taken)";
+      });
+    }
+
+    // Initialize initial default random peer
+    peer = new Peer();
+    setupPeerEvents();
+
+    document.getElementById('host-btn').addEventListener('click', () => {
+      myPlayerName = document.getElementById('player-name').value || "Host";
+      player.name = myPlayerName;
+      
+      let customCode = document.getElementById('custom-room-input').value.trim();
+
+      if (customCode) {
+        // Destroy old default peer and create a new one with the custom ID code
+        peer.destroy();
+        peer = new Peer(customCode);
+        setupPeerEvents();
+        
+        myPlayerId = customCode;
+        player.id = customCode;
+      }
+
+      isHost = true;
+      document.getElementById('lobby-screen').style.display = 'none';
+      document.getElementById('multiplayer-status').innerText = `Hosting Room Code: ${myPlayerId}`;
+    });
+
+    document.getElementById('join-btn').addEventListener('click', () => {
+      const roomId = document.getElementById('room-id-input').value.trim();
+      if (!roomId) {
+        lobbyStatus.innerText = "Please enter a valid Room Code to join!";
+        return;
+      }
+
+      myPlayerName = document.getElementById('player-name').value || "Client";
+      player.name = myPlayerName;
+      isHost = false;
+
+      lobbyStatus.innerText = "Connecting to room...";
+      hostConn = peer.connect(roomId);
+
+      hostConn.on('open', () => {
+        document.getElementById('lobby-screen').style.display = 'none';
+        document.getElementById('multiplayer-status').innerText = `Connected to Room: ${roomId}`;
+      });
+
+      hostConn.on('data', (data) => handleIncomingData(data, hostConn));
+
+      hostConn.on('close', () => {
+        alert("Disconnected from host!");
+        location.reload();
+      });
+    });
+
+    function broadcastHostState() {
+      if (!isHost) return;
+
+      const statePacket = {
+        type: 'HOST_STATE',
+        gameTicks: gameTicks,
+        dayCount: dayCount,
+        isNight: isNight,
+        structures: structures,
+        worldItems: worldItems,
+        animals: animals,
+        destroyedTrees: Array.from(destroyedTrees),
+        destroyedRocks: Array.from(destroyedRocks),
+        players: {
+          [player.id]: getPlayerStatePacket(player),
+          ...remotePlayers
+        }
+      };
+
+      connections.forEach(conn => {
+        if (conn.open) conn.send(statePacket);
+      });
+    }
+
+    function sendClientState() {
+      if (isHost || !hostConn || !hostConn.open) return;
+
+      hostConn.send({
+        type: 'CLIENT_UPDATE',
+        player: getPlayerStatePacket(player)
+      });
+    }
+
+    function getPlayerStatePacket(p) {
+      return {
+        id: p.id,
+        name: p.name,
+        x: p.x,
+        y: p.y,
+        direction: p.direction,
+        isMoving: p.isMoving,
+        isSwimming: p.isSwimming,
+        isRidingBoat: p.isRidingBoat,
+        animFrame: p.animFrame,
+        punchingTimer: p.punchingTimer,
+        invincibleTimer: p.invincibleTimer,
+        activeItem: hotbarItems[activeHotbarIndex]
+      };
+    }
+
+    function handleIncomingData(data, conn) {
+      if (data.type === 'CLIENT_UPDATE' && isHost) {
+        remotePlayers[data.player.id] = data.player;
+      } 
+      else if (data.type === 'HOST_STATE' && !isHost) {
+        gameTicks = data.gameTicks;
+        dayCount = data.dayCount;
+        isNight = data.isNight;
+
+        Object.assign(structures, data.structures);
+        worldItems.length = 0;
+        worldItems.push(...data.worldItems);
+        animals.length = 0;
+        animals.push(...data.animals);
+
+        data.destroyedTrees.forEach(t => destroyedTrees.add(t));
+        data.destroyedRocks.forEach(r => destroyedRocks.add(r));
+
+        delete data.players[player.id]; 
+        remotePlayers = data.players;
+      }
+    }
+
+    /* ==========================================================================
+       GAME ENGINE & LOGIC
+       ========================================================================== */
+
+    function spawnMobNearPlayer() {
+      if (!isHost || animals.length >= 8) return;
+
+      let angle = Math.random() * Math.PI * 2;
+      let dist = 320 + Math.random() * 250;
+      let x = player.x + Math.cos(angle) * dist;
+      let y = player.y + Math.sin(angle) * dist;
+
+      let tileX = Math.floor(x / DRAW_TILE_SIZE);
+      let tileY = Math.floor(y / DRAW_TILE_SIZE);
+      let tile = getTile(tileX, tileY);
+
+      let type = 'pig';
+      let hp = 50;
+      let isAggressive = false;
+
+      if (isNight) {
+        if (tile === BIOMES.WATER) { type = 'shark'; hp = 200; isAggressive = true; }
+        else if (tile === BIOMES.FOREST) { type = 'bear'; hp = 200; isAggressive = true; }
+        else if (tile === BIOMES.PLAINS || tile === BIOMES.SAND) { type = 'wolf'; hp = 200; isAggressive = true; }
+        else { return; }
+      } else {
+        if (tile === BIOMES.WATER) return;
+        type = 'pig';
+        hp = 50;
+        isAggressive = false;
+      }
+
+      animals.push({
+        id: Date.now() + Math.random(),
+        type: type,
+        x: x,
+        y: y,
+        vx: 0,
+        vy: 0,
+        direction: 'left',
+        animFrame: 0,
+        animTimer: 0,
+        changeTimer: Math.floor(Math.random() * 60),
+        hp: hp,
+        maxHp: hp,
+        hitTimer: 0,
+        isAggressive: isAggressive
+      });
+    }
+
+    const invGrid = document.getElementById('inv-grid');
+    for (let i = 0; i < 9; i++) {
+      let slot = document.createElement('div');
+      slot.className = 'slot';
+      slot.dataset.type = 'inventory';
+      slot.dataset.index = i;
+      invGrid.appendChild(slot);
+    }
+
+    function getItemCount(itemName) {
+      let count = 0;
+      [...hotbarItems, ...inventoryItems].forEach(item => {
+        if (item && item.name === itemName) count += item.count;
+      });
+      return count;
+    }
+
+    function removeItemByName(itemName, amountNeeded) {
+      let remaining = amountNeeded;
+      const deduct = (arr) => {
+        for (let i = 0; i < arr.length; i++) {
+          if (arr[i] && arr[i].name === itemName) {
+            if (arr[i].count > remaining) {
+              arr[i].count -= remaining;
+              remaining = 0;
+              return;
+            } else {
+              remaining -= arr[i].count;
+              arr[i] = null;
+            }
+          }
+        }
+      };
+      deduct(hotbarItems);
+      if (remaining > 0) deduct(inventoryItems);
+    }
+
+    function addItemToInventory(itemName, icon, amount = 1) {
+      let remaining = amount;
+      const isArrow = (itemName === 'Arrow');
+
+      const stackToArr = (arr) => {
+        for (let i = 0; i < arr.length; i++) {
+          if (arr[i] && arr[i].name === itemName) {
+            if (isArrow) {
+              arr[i].count += remaining;
+              remaining = 0;
+              return;
+            } else if (arr[i].count < MAX_STACK) {
+              let space = MAX_STACK - arr[i].count;
+              let add = Math.min(space, remaining);
+              arr[i].count += add;
+              remaining -= add;
+              if (remaining <= 0) return;
+            }
+          }
+        }
+      };
+
+      const fillEmptyArr = (arr) => {
+        for (let i = 0; i < arr.length; i++) {
+          if (!arr[i]) {
+            let add = isArrow ? remaining : Math.min(MAX_STACK, remaining);
+            arr[i] = { name: itemName, icon: icon, count: add };
+            remaining -= add;
+            if (remaining <= 0) return;
+          }
+        }
+      };
+
+      stackToArr(hotbarItems);
+      if (remaining > 0) stackToArr(inventoryItems);
+      if (remaining > 0) fillEmptyArr(hotbarItems);
+      if (remaining > 0) fillEmptyArr(inventoryItems);
+
+      return remaining < amount;
+    }
+
+    function renderSlot(slotEl, item, numLabel) {
+      slotEl.innerHTML = '';
+      if (numLabel !== undefined) {
+        let numSpan = document.createElement('span');
+        numSpan.className = 'slot-num';
+        numSpan.innerText = numLabel;
+        slotEl.appendChild(numSpan);
+      }
+
+      if (item) {
+        let iconText = document.createTextNode(item.icon);
+        slotEl.appendChild(iconText);
+
+        if (item.count > 1 || item.name === 'Arrow') {
+          let countSpan = document.createElement('span');
+          countSpan.className = 'slot-count';
+          countSpan.innerText = item.count;
+          slotEl.appendChild(countSpan);
+        }
+      }
+    }
+
+    function updateInventoryUI() {
+      document.querySelectorAll('#hotbar .slot').forEach((slot, idx) => {
+        renderSlot(slot, hotbarItems[idx], idx + 1);
+      });
+
+      document.querySelectorAll('#inv-grid .slot').forEach((slot, idx) => {
+        renderSlot(slot, inventoryItems[idx]);
+      });
+
+      const craftList = document.getElementById('craft-list');
+      craftList.innerHTML = '';
+      RECIPES.forEach(recipe => {
+        let el = document.createElement('div');
+        el.className = 'craft-item';
+
+        let reqText = Object.entries(recipe.req).map(([k, v]) => `${k} x${v}`).join(', ');
+        let canCraft = true;
+
+        Object.entries(recipe.req).forEach(([k, v]) => {
+          if (getItemCount(k) < v) canCraft = false;
+        });
+
+        el.innerHTML = `
+          <div>
+            <div>${recipe.icon} <strong>${recipe.name}</strong> ${recipe.yieldCount > 1 ? '(x' + recipe.yieldCount + ')' : ''}</div>
+            <div style="font-size:10px; color:#aaa;">Requires: ${reqText}</div>
+          </div>
+          <button class="craft-btn" ${canCraft ? '' : 'disabled'}>Craft</button>
+        `;
+
+        el.querySelector('.craft-btn').addEventListener('click', () => {
+          if (!canCraft) return;
+          Object.entries(recipe.req).forEach(([k, v]) => removeItemByName(k, v));
+          addItemToInventory(recipe.name, recipe.icon, recipe.yieldCount || 1);
+          updateInventoryUI();
+        });
+
+        craftList.appendChild(el);
+      });
+
+      const cookingList = document.getElementById('cooking-list');
+      cookingList.innerHTML = '';
+
+      let hasFurnace = getItemCount('Furnace') > 0;
+
+      if (!hasFurnace) {
+        cookingList.innerHTML = `<div style="color: #e74c3c; font-size: 11px; padding: 10px; text-align: center;">⚠️ You need a Furnace in your Inventory to cook meat!</div>`;
+      } else {
+        COOKING_RECIPES.forEach(recipe => {
+          let el = document.createElement('div');
+          el.className = 'craft-item';
+
+          let reqText = Object.entries(recipe.req).map(([k, v]) => `${k} x${v}`).join(', ');
+          let canCook = true;
+
+          Object.entries(recipe.req).forEach(([k, v]) => {
+            if (getItemCount(k) < v) canCook = false;
+          });
+
+          el.innerHTML = `
+            <div>
+              <div>${recipe.icon} <strong>${recipe.name}</strong> (+100 Hunger)</div>
+              <div style="font-size:10px; color:#aaa;">Uses: ${reqText}</div>
+            </div>
+            <button class="craft-btn" ${canCook ? '' : 'disabled'}>Cook</button>
+          `;
+
+          el.querySelector('.craft-btn').addEventListener('click', () => {
+            if (!canCook) return;
+            Object.entries(recipe.req).forEach(([k, v]) => removeItemByName(k, v));
+            addItemToInventory(recipe.name, recipe.icon, 1);
+            updateInventoryUI();
+          });
+
+          cookingList.appendChild(el);
+        });
+      }
+    }
+
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(btn.dataset.tab).classList.add('active');
+      });
+    });
+
+    let draggedSource = null;
+    let draggedItem = null;
+    let startTouchX = 0;
+    let startTouchY = 0;
+    let isDraggingActive = false;
+    const dragGhost = document.getElementById('drag-ghost');
+
+    function handleDragStart(e, type, index) {
+      let item = type === 'hotbar' ? hotbarItems[index] : inventoryItems[index];
+      let clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      let clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+      startTouchX = clientX;
+      startTouchY = clientY;
+      isDraggingActive = false;
+
+      draggedSource = { type, index };
+      draggedItem = item;
+    }
+
+    function handleDragMove(e) {
+      if (!draggedItem) return;
+      let clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      let clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+      let dist = Math.hypot(clientX - startTouchX, clientY - startTouchY);
+      if (dist > 8) {
+        isDraggingActive = true;
+        dragGhost.innerText = draggedItem.icon;
+        dragGhost.style.display = 'block';
+        dragGhost.style.left = clientX + 'px';
+        dragGhost.style.top = clientY + 'px';
+      }
+    }
+
+    function handleDragEnd(e) {
+      if (!draggedSource) return;
+
+      let clientX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
+      let clientY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
+
+      if (!isDraggingActive) {
+        if (draggedSource.type === 'hotbar') {
+          selectHotbarSlot(draggedSource.index);
+        }
+        draggedSource = null;
+        draggedItem = null;
+        dragGhost.style.display = 'none';
+        return;
+      }
+
+      if (!draggedItem) {
+        draggedSource = null;
+        return;
+      }
+
+      let targetEl = document.elementFromPoint(clientX, clientY);
+      let slot = targetEl ? targetEl.closest('.slot') : null;
+      let sourceArr = draggedSource.type === 'hotbar' ? hotbarItems : inventoryItems;
+
+      if (slot) {
+        let targetType = slot.dataset.type;
+        let targetIndex = parseInt(slot.dataset.index);
+        let targetArr = targetType === 'hotbar' ? hotbarItems : inventoryItems;
+
+        if (targetArr[targetIndex] && targetArr[targetIndex].name === draggedItem.name && (draggedSource.type !== targetType || draggedSource.index !== targetIndex)) {
+          let space = MAX_STACK - targetArr[targetIndex].count;
+          if (draggedItem.name === 'Arrow') {
+            targetArr[targetIndex].count += draggedItem.count;
+            sourceArr[draggedSource.index] = null;
+          } else if (space > 0) {
+            let add = Math.min(space, draggedItem.count);
+            targetArr[targetIndex].count += add;
+            draggedItem.count -= add;
+            if (draggedItem.count <= 0) {
+              sourceArr[draggedSource.index] = null;
+            }
+          }
+        } else {
+          let temp = targetArr[targetIndex];
+          targetArr[targetIndex] = draggedItem;
+          sourceArr[draggedSource.index] = temp;
+        }
+      } else {
+        worldItems.push({
+          id: Date.now() + Math.random(),
+          name: draggedItem.name,
+          icon: draggedItem.icon,
+          x: player.x + (Math.random() * 20 - 10),
+          y: player.y + (Math.random() * 20 - 10),
+          floatSeed: Math.random() * 10
+        });
+
+        draggedItem.count -= 1;
+        if (draggedItem.count <= 0) {
+          sourceArr[draggedSource.index] = null;
+        }
+      }
+
+      draggedSource = null;
+      draggedItem = null;
+      isDraggingActive = false;
+      dragGhost.style.display = 'none';
+      updateInventoryUI();
+    }
+
+    document.querySelectorAll('.slot').forEach(slot => {
+      slot.addEventListener('touchstart', e => handleDragStart(e, slot.dataset.type, parseInt(slot.dataset.index)), {passive: true});
+      slot.addEventListener('mousedown', e => handleDragStart(e, slot.dataset.type, parseInt(slot.dataset.index)));
+    });
+
+    window.addEventListener('touchmove', handleDragMove, {passive: true});
+    window.addEventListener('mousemove', handleDragMove);
+    window.addEventListener('touchend', handleDragEnd);
+    window.addEventListener('mouseup', handleDragEnd);
+
+    const invBtn = document.getElementById('inv-toggle-btn');
+    const invModal = document.getElementById('inventory-modal');
+    const invClose = document.getElementById('inv-close');
+    const pickBtn = document.getElementById('pick-btn');
+    const eatBtn = document.getElementById('eat-btn');
+
+    invBtn.addEventListener('click', () => {
+      invModal.classList.toggle('active');
+      updateInventoryUI();
+    });
+    invClose.addEventListener('click', () => invModal.classList.remove('active'));
+
+    pickBtn.addEventListener('click', () => {
+      if (!nearestItem) return;
+      if (addItemToInventory(nearestItem.name, nearestItem.icon, 1)) {
+        let idx = worldItems.indexOf(nearestItem);
+        if (idx > -1) worldItems.splice(idx, 1);
+        nearestItem = null;
+        pickBtn.style.display = 'none';
+        updateInventoryUI();
+      }
+    });
+
+    eatBtn.addEventListener('click', () => {
+      let activeItem = hotbarItems[activeHotbarIndex];
+      if (!activeItem) return;
+
+      let gain = 0;
+      if (activeItem.name === 'Apple') gain = 30;
+      else if (activeItem.name === 'Raw Meat') gain = 40;
+      else if (activeItem.name === 'Cooked Meat') gain = 100;
+
+      if (gain > 0) {
+        player.hunger = Math.min(player.maxHunger, player.hunger + gain);
+        player.hp = Math.min(player.maxHp, player.hp + 15);
+
+        activeItem.count -= 1;
+        if (activeItem.count <= 0) {
+          hotbarItems[activeHotbarIndex] = null;
+        }
+        updateInventoryUI();
+      }
+    });
+
+    canvas.addEventListener('pointerdown', e => {
+      if (invModal.classList.contains('active')) return;
+      if (player.actionCooldown > 0) return;
+
+      const cameraX = player.x - canvas.width / 2 + DRAW_TILE_SIZE / 2;
+      const cameraY = player.y - canvas.height / 2 + DRAW_TILE_SIZE / 2;
+
+      const clickWorldX = e.clientX + cameraX;
+      const clickWorldY = e.clientY + cameraY;
+
+      let activeItem = hotbarItems[activeHotbarIndex];
+
+      const pTileX = Math.floor((player.x + DRAW_TILE_SIZE / 2) / DRAW_TILE_SIZE);
+      const pTileY = Math.floor((player.y + DRAW_TILE_SIZE / 2) / DRAW_TILE_SIZE);
+
+      const targetTx = Math.floor(clickWorldX / DRAW_TILE_SIZE);
+      const targetTy = Math.floor(clickWorldY / DRAW_TILE_SIZE);
+      const nodeKey = `${targetTx},${targetTy}`;
+
+      let nodeCenterX = targetTx * DRAW_TILE_SIZE + DRAW_TILE_SIZE / 2;
+      let nodeCenterY = targetTy * DRAW_TILE_SIZE + DRAW_TILE_SIZE / 2;
+      let dist = Math.hypot(player.x - nodeCenterX, player.y - nodeCenterY);
+
+      if (activeItem && activeItem.name === 'Bow') {
+        let arrowCount = getItemCount('Arrow');
+        if (arrowCount > 0) {
+          removeItemByName('Arrow', 1);
+
+          let angle = Math.atan2(clickWorldY - (player.y + DRAW_TILE_SIZE / 2), clickWorldX - (player.x + DRAW_TILE_SIZE / 2));
+          projectiles.push({
+            x: player.x + DRAW_TILE_SIZE / 2,
+            y: player.y + DRAW_TILE_SIZE / 2,
+            vx: Math.cos(angle) * 7,
+            vy: Math.sin(angle) * 7,
+            life: 90,
+            damage: 20
+          });
+
+          player.actionCooldown = 20;
+          player.punchingTimer = 10;
+          updateInventoryUI();
+          return;
+        }
+      }
+
+      if (structures[nodeKey] && dist < 100) {
+        let struct = structures[nodeKey];
+        player.punchingTimer = 12;
+        player.actionCooldown = 15;
+
+        let icon = '🚧';
+        if (struct.type === 'Door') icon = '🚪';
+        if (struct.type === 'Boat') icon = '⛵';
+
+        worldItems.push({
+          id: Date.now() + Math.random(),
+          name: struct.type,
+          icon: icon,
+          x: nodeCenterX - 8,
+          y: nodeCenterY - 8,
+          floatSeed: Math.random() * 10
+        });
+
+        if (struct.type === 'Boat' && player.isRidingBoat) {
+          player.isRidingBoat = false;
+        }
+
+        delete structures[nodeKey];
+        return;
+      }
+
+      if (activeItem && (activeItem.name === 'Fence' || activeItem.name === 'Door' || activeItem.name === 'Boat')) {
+        if (targetTx === pTileX && targetTy === pTileY) return;
+
+        if (dist < 120 && !structures[nodeKey]) {
+          let tile = getTile(targetTx, targetTy);
+
+          if (activeItem.name === 'Boat') {
+            if (tile === BIOMES.WATER) {
+              structures[nodeKey] = {
+                type: 'Boat',
+                tx: targetTx,
+                ty: targetTy,
+                x: targetTx * DRAW_TILE_SIZE,
+                y: targetTy * DRAW_TILE_SIZE,
+                hp: 1,
+                maxHp: 1,
+                blockedMobs: 0
+              };
+              activeItem.count -= 1;
+              if (activeItem.count <= 0) hotbarItems[activeHotbarIndex] = null;
+              player.actionCooldown = 15;
+              updateInventoryUI();
+              return;
+            }
+          } else {
+            if (tile !== BIOMES.WATER) {
+              structures[nodeKey] = {
+                type: activeItem.name,
+                tx: targetTx,
+                ty: targetTy,
+                x: targetTx * DRAW_TILE_SIZE,
+                y: targetTy * DRAW_TILE_SIZE,
+                hp: BASE_FENCE_DURABILITY,
+                maxHp: BASE_FENCE_DURABILITY,
+                blockedMobs: 0,
+                isOpen: false
+              };
+
+              activeItem.count -= 1;
+              if (activeItem.count <= 0) hotbarItems[activeHotbarIndex] = null;
+              player.actionCooldown = 15;
+              updateInventoryUI();
+              return;
+            }
+          }
+        }
+      }
+
+      for (let i = animals.length - 1; i >= 0; i--) {
+        let animal = animals[i];
+        let distToMob = Math.hypot(clickWorldX - (animal.x + 12), clickWorldY - (animal.y + 12));
+        let distPlayerToMob = Math.hypot(player.x - animal.x, player.y - animal.y);
+
+        if (distToMob < 40 && distPlayerToMob < 90) {
+          player.punchingTimer = 12;
+          player.actionCooldown = 20;
+
+          let dmg = (activeItem && activeItem.name === 'Sword') ? 10 : 5;
+          animal.hp -= dmg;
+          animal.hitTimer = 15;
+
+          if (animal.hp <= 0) {
+            let dropItem = { name: 'Raw Meat', icon: '🥩' };
+            if (animal.type === 'bear') dropItem = { name: 'Bear Ears', icon: '🐻' };
+            else if (animal.type === 'wolf') dropItem = { name: 'Wolf Fur', icon: '🐺' };
+            else if (animal.type === 'shark') dropItem = { name: 'Shark Scale', icon: '🦈' };
+
+            worldItems.push({
+              id: Date.now() + Math.random(),
+              name: dropItem.name,
+              icon: dropItem.icon,
+              x: animal.x + 8,
+              y: animal.y + 8,
+              floatSeed: Math.random() * 10
+            });
+
+            animals.splice(i, 1);
+          }
+          return;
+        }
+      }
+
+      const tile = getTile(targetTx, targetTy);
+      const rand = pseudoRandom(targetTx, targetTy);
+
+      let isTree = (tile === BIOMES.FOREST && rand < 0.28) || (tile === BIOMES.PLAINS && rand > 0.92);
+      let isRock = (tile === BIOMES.MOUNTAIN && rand < 0.40) || (tile === BIOMES.PLAINS && rand < 0.05);
+
+      if (dist < 90) {
+        if (isTree && !destroyedTrees.has(nodeKey)) {
+          player.punchingTimer = 12;
+          player.actionCooldown = 28;
+
+          let damage = (activeItem && activeItem.name === 'Axe') ? 4 : 1;
+
+          if (!treeHealth[nodeKey]) {
+            treeHealth[nodeKey] = { hp: 16, maxHp: 16, hitTimer: 150, shake: 0 };
+          }
+
+          treeHealth[nodeKey].hp -= damage;
+          treeHealth[nodeKey].hitTimer = 150;
+          treeHealth[nodeKey].shake = 10;
+
+          if (treeHealth[nodeKey].hp <= 0) {
+            destroyedTrees.add(nodeKey);
+            delete treeHealth[nodeKey];
+
+            worldItems.push({
+              id: Date.now() + Math.random(),
+              name: 'Wood',
+              icon: '🪵',
+              x: nodeCenterX - 8,
+              y: nodeCenterY - 8,
+              floatSeed: Math.random() * 10
+            });
+
+            if (Math.random() < 0.25) {
+              worldItems.push({
+                id: Date.now() + Math.random() + 1,
+                name: 'Apple',
+                icon: '🍎',
+                x: nodeCenterX + 8,
+                y: nodeCenterY + 8,
+                floatSeed: Math.random() * 10
+              });
+            }
+          }
+        }
+        else if (isRock && !destroyedRocks.has(nodeKey)) {
+          if (!activeItem || activeItem.name !== 'Pickaxe') {
+            player.punchingTimer = 10;
+            player.actionCooldown = 20;
+            return;
+          }
+
+          player.punchingTimer = 12;
+          player.actionCooldown = 28;
+
+          if (!rockHealth[nodeKey]) {
+            rockHealth[nodeKey] = { hp: 12, maxHp: 12, hitTimer: 150, shake: 0 };
+          }
+
+          rockHealth[nodeKey].hp -= 4;
+          rockHealth[nodeKey].hitTimer = 150;
+          rockHealth[nodeKey].shake = 10;
+
+          if (rockHealth[nodeKey].hp <= 0) {
+            destroyedRocks.add(nodeKey);
+            delete rockHealth[nodeKey];
+
+            worldItems.push({
+              id: Date.now() + Math.random(),
+              name: 'Stone',
+              icon: '🪨',
+              x: nodeCenterX,
+              y: nodeCenterY,
+              floatSeed: Math.random() * 10
+            });
+          }
+        } else {
+          player.punchingTimer = 10;
+          player.actionCooldown = 22;
+        }
+      } else {
+        player.punchingTimer = 10;
+        player.actionCooldown = 22;
+      }
+    });
+
+    let joystickInput = { x: 0, y: 0 };
+    const keys = { up: false, down: false, left: false, right: false };
+
+    function selectHotbarSlot(idx) {
+      activeHotbarIndex = idx;
+      document.querySelectorAll('#hotbar .slot').forEach((s, i) => {
+        s.classList.toggle('active', i === idx);
+      });
+    }
+
+    window.addEventListener('keydown', e => {
+      if (e.key === 'ArrowUp' || e.key === 'w') keys.up = true;
+      if (e.key === 'ArrowDown' || e.key === 's') keys.down = true;
+      if (e.key === 'ArrowLeft' || e.key === 'a') keys.left = true;
+      if (e.key === 'ArrowRight' || e.key === 'd') keys.right = true;
+      if (e.key >= '1' && e.key <= '4') {
+        selectHotbarSlot(parseInt(e.key) - 1);
+      }
+    });
+
+    window.addEventListener('keyup', e => {
+      if (e.key === 'ArrowUp' || e.key === 'w') keys.up = false;
+      if (e.key === 'ArrowDown' || e.key === 's') keys.down = false;
+      if (e.key === 'ArrowLeft' || e.key === 'a') keys.left = false;
+      if (e.key === 'ArrowRight' || e.key === 'd') keys.right = false;
+    });
+
+    const joyContainer = document.getElementById('joystick-container');
+    const joyThumb = document.getElementById('joystick-thumb');
+    let joyActive = false;
+    let joyTouchId = null;
+
+    function handleJoystickMove(touch) {
+      const rect = joyContainer.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      
+      let deltaX = touch.clientX - centerX;
+      let deltaY = touch.clientY - centerY;
+      let distance = Math.hypot(deltaX, deltaY);
+      let maxRadius = rect.width / 2;
+
+      if (distance > maxRadius) {
+        deltaX = (deltaX / distance) * maxRadius;
+        deltaY = (deltaY / distance) * maxRadius;
+      }
+
+      joyThumb.style.transform = `translate(calc(-50% + ${deltaX}px), calc(-50% + ${deltaY}px))`;
+      joystickInput.x = deltaX / maxRadius;
+      joystickInput.y = deltaY / maxRadius;
+    }
+
+    joyContainer.addEventListener('touchstart', e => {
+      e.preventDefault();
+      let touch = e.changedTouches[0];
+      joyActive = true;
+      joyTouchId = touch.identifier;
+      handleJoystickMove(touch);
+    });
+
+    window.addEventListener('touchmove', e => {
+      if (!joyActive) return;
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        if (e.changedTouches[i].identifier === joyTouchId) {
+          handleJoystickMove(e.changedTouches[i]);
+          break;
+        }
+      }
+    });
+
+    function resetJoystick() {
+      joyActive = false;
+      joyTouchId = null;
+      joystickInput = { x: 0, y: 0 };
+      joyThumb.style.transform = 'translate(-50%, -50%)';
+    }
+
+    window.addEventListener('touchend', e => {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        if (e.changedTouches[i].identifier === joyTouchId) {
+          resetJoystick();
+          break;
+        }
+      }
+    });
+    window.addEventListener('touchcancel', resetJoystick);
+
+    function findPathStep(startX, startY, targetX, targetY, isWaterMob) {
+      let startTx = Math.floor(startX / DRAW_TILE_SIZE);
+      let startTy = Math.floor(startY / DRAW_TILE_SIZE);
+      let targetTx = Math.floor(targetX / DRAW_TILE_SIZE);
+      let targetTy = Math.floor(targetY / DRAW_TILE_SIZE);
+
+      if (startTx === targetTx && startTy === targetTy) return null;
+
+      let queue = [{ tx: startTx, ty: startTy, path: [] }];
+      let visited = new Set();
+      visited.add(`${startTx},${startTy}`);
+
+      let dirs = [
+        { x: 0, y: -1 }, { x: 0, y: 1 },
+        { x: -1, y: 0 }, { x: 1, y: 0 }
+      ];
+
+      let maxSearchSteps = 60;
+      let steps = 0;
+
+      while (queue.length > 0 && steps < maxSearchSteps) {
+        steps++;
+        let curr = queue.shift();
+
+        if (curr.tx === targetTx && curr.ty === targetTy) {
+          return curr.path[0];
+        }
+
+        for (let d of dirs) {
+          let nx = curr.tx + d.x;
+          let ny = curr.ty + d.y;
+          let key = `${nx},${ny}`;
+
+          if (visited.has(key)) continue;
+
+          let tile = getTile(nx, ny);
+          let struct = structures[key];
+          let isFenceOrDoor = struct && (struct.type === 'Fence' || struct.type === 'Door');
+
+          let isBlocked = isFenceOrDoor;
+          if (!isWaterMob && tile === BIOMES.WATER) isBlocked = true;
+          if (isWaterMob && tile !== BIOMES.WATER) isBlocked = true;
+
+          if (!isBlocked) {
+            visited.add(key);
+            let nextPath = [...curr.path];
+            if (nextPath.length === 0) nextPath.push({ tx: nx, ty: ny });
+            queue.push({ tx: nx, ty: ny, path: nextPath });
+          }
+        }
+      }
+
+      return { tx: Math.sign(targetTx - startTx) + startTx, ty: Math.sign(targetTy - startTy) + startTy };
+    }
+
+    function update() {
+      if (isHost) {
+        gameTicks++;
+        let cycleProgress = (gameTicks % CYCLE_LENGTH) / CYCLE_LENGTH;
+        let wasNight = isNight;
+        isNight = cycleProgress > 0.5;
+
+        if (gameTicks % CYCLE_LENGTH === 0) {
+          dayCount++;
+        }
+
+        if (wasNight !== isNight) {
+          for (let i = animals.length - 1; i >= 0; i--) {
+            if (isNight && animals[i].type === 'pig') animals.splice(i, 1);
+            if (!isNight && animals[i].type !== 'pig') animals.splice(i, 1);
+          }
+        }
+
+        if (gameTicks % 360 === 0 && Math.random() < 0.6) {
+          spawnMobNearPlayer();
+        }
+
+        Object.keys(structures).forEach(key => {
+          let struct = structures[key];
+          if (struct.type === 'Fence' || struct.type === 'Door') {
+            if (struct.blockedMobs > 0) {
+              struct.hp -= struct.blockedMobs;
+            }
+            struct.blockedMobs = 0;
+
+            if (struct.hp <= 0) {
+              delete structures[key];
+            }
+          }
+        });
+
+        broadcastHostState();
+      } else {
+        sendClientState();
+      }
+
+      let cycleProgress = (gameTicks % CYCLE_LENGTH) / CYCLE_LENGTH;
+      let hours = Math.floor(cycleProgress * 24);
+      let mins = Math.floor(((cycleProgress * 24) % 1) * 60);
+      let timeStr = `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+      let icon = isNight ? '🌙' : '☀️';
+      document.getElementById('time-display').innerText = `${icon} Day ${dayCount} (${timeStr})`;
+      document.getElementById('time-display').style.color = isNight ? '#9b59b6' : '#f39c12';
+
+      for (let i = projectiles.length - 1; i >= 0; i--) {
+        let p = projectiles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life--;
+
+        for (let j = animals.length - 1; j >= 0; j--) {
+          let a = animals[j];
+          let dist = Math.hypot(p.x - (a.x + 12), p.y - (a.y + 12));
+          if (dist < 18) {
+            a.hp -= p.damage;
+            a.hitTimer = 12;
+
+            if (a.hp <= 0) {
+              let dropItem = { name: 'Raw Meat', icon: '🥩' };
+              if (a.type === 'bear') dropItem = { name: 'Bear Ears', icon: '🐻' };
+              else if (a.type === 'wolf') dropItem = { name: 'Wolf Fur', icon: '🐺' };
+              else if (a.type === 'shark') dropItem = { name: 'Shark Scale', icon: '🦈' };
+
+              worldItems.push({
+                id: Date.now() + Math.random(),
+                name: dropItem.name,
+                icon: dropItem.icon,
+                x: a.x + 8,
+                y: a.y + 8,
+                floatSeed: Math.random() * 10
+              });
+
+              animals.splice(j, 1);
+            }
+
+            projectiles.splice(i, 1);
+            break;
+          }
+        }
+
+        if (p.life <= 0) {
+          projectiles.splice(i, 1);
+        }
+      }
+
+      let moveX = 0;
+      let moveY = 0;
+
+      if (keys.up) moveY -= 1;
+      if (keys.down) moveY += 1;
+      if (keys.left) moveX -= 1;
+      if (keys.right) moveX += 1;
+
+      if (joyActive) {
+        moveX = joystickInput.x;
+        moveY = joystickInput.y;
+      }
+
+      let magnitude = Math.hypot(moveX, moveY);
+      if (magnitude > 1) {
+        moveX /= magnitude;
+        moveY /= magnitude;
+      }
+
+      let pTileX = Math.floor((player.x + DRAW_TILE_SIZE / 2) / DRAW_TILE_SIZE);
+      let pTileY = Math.floor((player.y + DRAW_TILE_SIZE / 2) / DRAW_TILE_SIZE);
+      let currStruct = structures[`${pTileX},${pTileY}`];
+
+      player.isRidingBoat = (currStruct && currStruct.type === 'Boat');
+      let pBiome = getTile(pTileX, pTileY);
+      player.isSwimming = (pBiome === BIOMES.WATER && !player.isRidingBoat);
+
+      if (player.isRidingBoat) {
+        player.speed = player.baseSpeed * 1.5;
+      } else if (player.isSwimming) {
+        player.speed = player.baseSpeed * 0.7;
+      } else {
+        player.speed = player.baseSpeed;
+      }
+
+      player.isMoving = magnitude > 0.15;
+
+      if (player.isMoving) {
+        let nextX = player.x + moveX * player.speed;
+        let nextY = player.y + moveY * player.speed;
+
+        let nextTx = Math.floor((nextX + DRAW_TILE_SIZE / 2) / DRAW_TILE_SIZE);
+        let nextTy = Math.floor((nextY + DRAW_TILE_SIZE / 2) / DRAW_TILE_SIZE);
+
+        let targetStruct = structures[`${nextTx},${nextTy}`];
+        let isSolid = targetStruct && (targetStruct.type === 'Fence' || targetStruct.type === 'Door');
+
+        if (!isSolid) {
+          player.x = nextX;
+          player.y = nextY;
+        }
+
+        if (Math.abs(moveX) > Math.abs(moveY)) {
+          player.direction = moveX > 0 ? 'right' : 'left';
+        } else {
+          player.direction = moveY > 0 ? 'down' : 'up';
+        }
+
+        player.animTimer++;
+        if (player.animTimer % 8 === 0) {
+          player.animFrame = (player.animFrame + 1) % 4;
+        }
+      } else {
+        player.animFrame = 0;
+        player.animTimer = 0;
+      }
+
+      if (player.punchingTimer > 0) player.punchingTimer--;
+      if (player.actionCooldown > 0) player.actionCooldown--;
+      if (player.invincibleTimer > 0) player.invincibleTimer--;
+
+      player.hungerTimer++;
+      if (player.hungerTimer >= 200) {
+        player.hungerTimer = 0;
+        if (player.hunger > 0) player.hunger -= 1;
+      }
+
+      if (player.hunger <= 0) {
+        player.starveTimer++;
+        if (player.starveTimer >= 120) {
+          player.starveTimer = 0;
+          player.hp = Math.max(0, player.hp - 5);
+        }
+      } else {
+        player.starveTimer = 0;
+      }
+
+      if (player.hp <= 0) {
+        player.x = 0;
+        player.y = 0;
+        player.hp = player.maxHp;
+        player.hunger = player.maxHunger;
+      }
+
+      if (isHost) {
+        for (let i = animals.length - 1; i >= 0; i--) {
+          let a = animals[i];
+          if (a.hitTimer > 0) a.hitTimer--;
+
+          let distToPlayer = Math.hypot(player.x - a.x, player.y - a.y);
+
+          if (distToPlayer > 1000) {
+            animals.splice(i, 1);
+            continue;
+          }
+
+          if (a.isAggressive && distToPlayer < 280) {
+            let step = findPathStep(a.x, a.y, player.x, player.y, a.type === 'shark');
+            if (step) {
+              let targetX = step.tx * DRAW_TILE_SIZE + DRAW_TILE_SIZE / 4;
+              let targetY = step.ty * DRAW_TILE_SIZE + DRAW_TILE_SIZE / 4;
+              let angle = Math.atan2(targetY - a.y, targetX - a.x);
+              let spd = a.type === 'wolf' ? 1.0 : 0.7;
+
+              a.vx = Math.cos(angle) * spd;
+              a.vy = Math.sin(angle) * spd;
+              a.direction = a.vx > 0 ? 'right' : 'left';
+            }
+
+            if (distToPlayer < 24 && player.invincibleTimer <= 0) {
+              player.hp = Math.max(0, player.hp - 10);
+              player.invincibleTimer = 30;
+            }
+          } else {
+            a.changeTimer--;
+            if (a.changeTimer <= 0) {
+              a.changeTimer = 80 + Math.floor(Math.random() * 120);
+              if (Math.random() < 0.6) {
+                let angle = Math.random() * Math.PI * 2;
+                a.vx = Math.cos(angle) * 0.4;
+                a.vy = Math.sin(angle) * 0.4;
+                a.direction = a.vx > 0 ? 'right' : 'left';
+              } else {
+                a.vx = 0;
+                a.vy = 0;
+              }
+            }
+          }
+
+          let nextX = a.x + a.vx;
+          let nextY = a.y + a.vy;
+          let nextTx = Math.floor((nextX + 12) / DRAW_TILE_SIZE);
+          let nextTy = Math.floor((nextY + 12) / DRAW_TILE_SIZE);
+          let structKey = `${nextTx},${nextTy}`;
+          let struct = structures[structKey];
+
+          if (struct && (struct.type === 'Fence' || struct.type === 'Door')) {
+            struct.blockedMobs += 1;
+            a.vx = -a.vx * 0.5;
+            a.vy = -a.vy * 0.5;
+          } else {
+            let nextTile = getTile(nextTx, nextTy);
+            if (a.type === 'shark') {
+              if (nextTile === BIOMES.WATER) {
+                a.x = nextX;
+                a.y = nextY;
+              } else {
+                a.vx = -a.vx;
+                a.vy = -a.vy;
+              }
+            } else {
+              if (nextTile !== BIOMES.WATER) {
+                a.x = nextX;
+                a.y = nextY;
+              } else {
+                a.vx = -a.vx;
+                a.vy = -a.vy;
+              }
+            }
+          }
+
+          if (Math.hypot(a.vx, a.vy) > 0.1) {
+            a.animTimer++;
+            if (a.animTimer % 10 === 0) {
+              a.animFrame = (a.animFrame + 1) % 2;
+            }
+          } else {
+            a.animFrame = 0;
+          }
+        }
+      }
+
+      document.getElementById('hp-bar').style.width = `${(player.hp / player.maxHp) * 100}%`;
+      document.getElementById('hp-txt').innerText = `${player.hp}/${player.maxHp}`;
+      document.getElementById('hunger-bar').style.width = `${(player.hunger / player.maxHunger) * 100}%`;
+      document.getElementById('hunger-txt').innerText = `${player.hunger}/${player.maxHunger}`;
+
+      nearestItem = null;
+      for (let item of worldItems) {
+        let dist = Math.hypot(player.x - item.x, player.y - item.y);
+        if (dist < 35) {
+          nearestItem = item;
+          break;
+        }
+      }
+
+      pickBtn.style.display = nearestItem ? 'block' : 'none';
+
+      let activeItem = hotbarItems[activeHotbarIndex];
+      let isEdible = activeItem && (activeItem.name === 'Apple' || activeItem.name === 'Raw Meat' || activeItem.name === 'Cooked Meat');
+      eatBtn.style.display = isEdible ? 'block' : 'none';
+      if (isEdible) {
+        eatBtn.innerText = `🍎 EAT ${activeItem.name.toUpperCase()}`;
+      }
+
+      document.getElementById('coords').innerText = `X: ${pTileX}, Y: ${pTileY}`;
+      document.getElementById('biome').innerText = `Biome: ${pBiome.name} ${player.isRidingBoat ? '(In Boat ⛵)' : (player.isSwimming ? '(Swimming 🏊)' : '')}`;
+    }
+
+    function drawHeldTool(itemName, px) {
+      if (itemName === 'Axe') {
+        ctx.fillStyle = '#8d6e63';
+        ctx.fillRect(12 * px, 3 * px, 2 * px, 10 * px);
+        ctx.fillStyle = '#90a4ae';
+        ctx.fillRect(10 * px, 2 * px, 6 * px, 4 * px);
+      } else if (itemName === 'Pickaxe') {
+        ctx.fillStyle = '#8d6e63';
+        ctx.fillRect(12 * px, 3 * px, 2 * px, 10 * px);
+        ctx.fillStyle = '#78909c';
+        ctx.fillRect(8 * px, 2 * px, 10 * px, 3 * px);
+      } else if (itemName === 'Sword') {
+        ctx.fillStyle = '#b0bec5';
+        ctx.fillRect(12 * px, 1 * px, 2 * px, 9 * px);
+        ctx.fillStyle = '#ffd54f';
+        ctx.fillRect(10 * px, 10 * px, 6 * px, 2 * px);
+        ctx.fillStyle = '#8d6e63';
+        ctx.fillRect(12 * px, 12 * px, 2 * px, 3 * px);
+      } else if (itemName === 'Bow') {
+        ctx.strokeStyle = '#8d6e63';
+        ctx.lineWidth = 2 * px;
+        ctx.beginPath();
+        ctx.arc(10 * px, 8 * px, 6 * px, -Math.PI / 2, Math.PI / 2);
+        ctx.stroke();
+        ctx.strokeStyle = '#eee';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(10 * px, 2 * px);
+        ctx.lineTo(10 * px, 14 * px);
+        ctx.stroke();
+      } else if (itemName === 'Fence' || itemName === 'Door' || itemName === 'Boat') {
+        ctx.fillStyle = '#8d6e63';
+        ctx.fillRect(10 * px, 4 * px, 6 * px, 8 * px);
+      }
+    }
+
+    function drawPlayerObject(p, screenX, screenY) {
+      ctx.save();
+      ctx.translate(screenX, screenY);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(p.name || 'Player', 16, -6);
+
+      const px = 1.8;
+
+      if (p.invincibleTimer % 4 > 2) {
+        ctx.globalAlpha = 0.5;
+      }
+
+      if (p.isSwimming) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.beginPath();
+        ctx.ellipse(9 * px, 15 * px, 8 * px, 3 * px, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = 'rgba(43, 101, 236, 0.6)';
+        ctx.fillRect(0, DRAW_TILE_SIZE / 2, DRAW_TILE_SIZE, DRAW_TILE_SIZE / 2);
+      } else {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.beginPath();
+        ctx.ellipse(9 * px, 15.5 * px, 7 * px, 2.8 * px, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      let leftLegY = 0;
+      let rightLegY = 0;
+
+      if (p.isMoving) {
+        if (p.animFrame === 1) { leftLegY = -2; rightLegY = 2; }
+        else if (p.animFrame === 3) { leftLegY = 2; rightLegY = -2; }
+      }
+
+      const skin = '#fcd0a1';
+      const hair = '#4a2e13';
+      const tunic = '#2b7a4b';
+      const pants = '#1b3b22';
+      const boots = '#3b2214';
+
+      if (!p.isSwimming && !p.isRidingBoat) {
+        ctx.fillStyle = pants;
+        ctx.fillRect(5 * px, 11 * px + leftLegY, 3 * px, 3 * px);
+        ctx.fillStyle = boots;
+        ctx.fillRect(5 * px, 14 * px + leftLegY, 3 * px, 2 * px);
+
+        ctx.fillStyle = pants;
+        ctx.fillRect(10 * px, 11 * px + rightLegY, 3 * px, 3 * px);
+        ctx.fillStyle = boots;
+        ctx.fillRect(10 * px, 14 * px + rightLegY, 3 * px, 2 * px);
+      }
+
+      ctx.fillStyle = tunic;
+      ctx.fillRect(4.5 * px, 6 * px, 9 * px, 5.5 * px);
+
+      ctx.fillStyle = '#111';
+      ctx.fillRect(4.5 * px, 9.5 * px, 9 * px, 1.2 * px);
+
+      ctx.save();
+      if (p.punchingTimer > 0) {
+        ctx.translate(12 * px, 8 * px);
+        ctx.rotate(0.6);
+        ctx.translate(-12 * px, -8 * px);
+      }
+
+      ctx.fillStyle = skin;
+      ctx.fillRect(13 * px, 7 * px, 3 * px, 3 * px);
+
+      if (p.activeItem) {
+        drawHeldTool(p.activeItem.name, px);
+      }
+      ctx.restore();
+
+      ctx.fillStyle = skin;
+      ctx.fillRect(5 * px, 2 * px, 8 * px, 4.5 * px);
+
+      if (p.direction === 'down') {
+        ctx.fillStyle = hair;
+        ctx.fillRect(4.5 * px, 1 * px, 9 * px, 2 * px);
+        ctx.fillStyle = '#111';
+        ctx.fillRect(6.5 * px, 3.8 * px, 1.5 * px, 2 * px);
+        ctx.fillRect(10 * px, 3.8 * px, 1.5 * px, 2 * px);
+      } else if (p.direction === 'up') {
+        ctx.fillStyle = hair;
+        ctx.fillRect(4.5 * px, 1 * px, 9 * px, 5.5 * px);
+      } else if (p.direction === 'left') {
+        ctx.fillStyle = hair;
+        ctx.fillRect(4.5 * px, 1 * px, 9 * px, 2 * px);
+        ctx.fillRect(9.5 * px, 1 * px, 4 * px, 5 * px);
+        ctx.fillStyle = '#111';
+        ctx.fillRect(6 * px, 3.8 * px, 1.5 * px, 2 * px);
+      } else if (p.direction === 'right') {
+        ctx.fillStyle = hair;
+        ctx.fillRect(4.5 * px, 1 * px, 9 * px, 2 * px);
+        ctx.fillRect(4.5 * px, 1 * px, 4 * px, 5 * px);
+        ctx.fillStyle = '#111';
+        ctx.fillRect(10.5 * px, 3.8 * px, 1.5 * px, 2 * px);
+      }
+
+      ctx.restore();
+    }
+
+    function drawAnimal(animal, screenX, screenY) {
+      ctx.save();
+      ctx.translate(screenX, screenY);
+
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+      ctx.beginPath();
+      ctx.ellipse(12, 18, 10, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      let legOff = animal.animFrame === 1 ? 2 : 0;
+
+      if (animal.type === 'pig') {
+        ctx.fillStyle = animal.hitTimer > 0 ? '#ff0000' : '#d87093';
+        ctx.fillRect(4, 14 - legOff, 3, 5);
+        ctx.fillRect(16, 14 + legOff, 3, 5);
+
+        ctx.fillStyle = animal.hitTimer > 0 ? '#ff4d4d' : '#ffb6c1';
+        ctx.beginPath();
+        ctx.roundRect(2, 4, 20, 12, 4);
+        ctx.fill();
+
+        if (animal.direction === 'left') {
+          ctx.fillStyle = '#ff69b4';
+          ctx.fillRect(0, 8, 3, 4);
+          ctx.fillStyle = '#000';
+          ctx.fillRect(5, 7, 2, 2);
+        } else {
+          ctx.fillStyle = '#ff69b4';
+          ctx.fillRect(21, 8, 3, 4);
+          ctx.fillStyle = '#000';
+          ctx.fillRect(17, 7, 2, 2);
+        }
+      } else if (animal.type === 'bear') {
+        ctx.fillStyle = animal.hitTimer > 0 ? '#ff0000' : '#4a2e1b';
+        ctx.fillRect(3, 13 - legOff, 5, 7);
+        ctx.fillRect(18, 13 + legOff, 5, 7);
+
+        ctx.fillStyle = animal.hitTimer > 0 ? '#ff4d4d' : '#6e4428';
+        ctx.beginPath();
+        ctx.roundRect(0, 1, 26, 15, 5);
+        ctx.fill();
+
+        if (animal.direction === 'left') {
+          ctx.fillStyle = '#3a2212';
+          ctx.fillRect(-3, 4, 6, 6);
+          ctx.fillStyle = '#e74c3c';
+          ctx.fillRect(3, 4, 2, 2);
+        } else {
+          ctx.fillStyle = '#3a2212';
+          ctx.fillRect(23, 4, 6, 6);
+          ctx.fillStyle = '#e74c3c';
+          ctx.fillRect(21, 4, 2, 2);
+        }
+      } else if (animal.type === 'wolf') {
+        ctx.fillStyle = animal.hitTimer > 0 ? '#ff0000' : '#555';
+        ctx.fillRect(4, 14 - legOff, 3, 6);
+        ctx.fillRect(17, 14 + legOff, 3, 6);
+
+        ctx.fillStyle = animal.hitTimer > 0 ? '#ff4d4d' : '#778899';
+        ctx.beginPath();
+        ctx.roundRect(2, 5, 20, 10, 3);
+        ctx.fill();
+
+        if (animal.direction === 'left') {
+          ctx.fillStyle = '#2c3e50';
+          ctx.fillRect(-2, 5, 5, 4);
+          ctx.fillStyle = '#f1c40f';
+          ctx.fillRect(4, 5, 2, 2);
+        } else {
+          ctx.fillStyle = '#2c3e50';
+          ctx.fillRect(21, 5, 5, 4);
+          ctx.fillStyle = '#f1c40f';
+          ctx.fillRect(18, 5, 2, 2);
+        }
+      } else if (animal.type === 'shark') {
+        ctx.fillStyle = animal.hitTimer > 0 ? '#ff0000' : '#2980b9';
+        ctx.beginPath();
+        ctx.ellipse(12, 10, 14, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#1b4f72';
+        ctx.beginPath();
+        ctx.moveTo(10, 3);
+        ctx.lineTo(14, -6);
+        ctx.lineTo(18, 3);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = '#e74c3c';
+        ctx.fillRect(animal.direction === 'left' ? 3 : 19, 8, 2, 2);
+      }
+
+      if (animal.hp < animal.maxHp) {
+        let pct = Math.max(0, animal.hp / animal.maxHp);
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(2, -8, 22, 5);
+        ctx.fillStyle = '#e74c3c';
+        ctx.fillRect(3, -7, 20 * pct, 3);
+      }
+
+      ctx.restore();
+    }
+
+    function drawStructure(struct, drawX, drawY) {
+      ctx.save();
+      ctx.translate(drawX, drawY);
+
+      if (struct.type === 'Fence') {
+        ctx.fillStyle = '#5d4037';
+        ctx.fillRect(6, 12, 6, 28);
+        ctx.fillRect(34, 12, 6, 28);
+
+        ctx.fillStyle = '#8d6e63';
+        ctx.fillRect(4, 18, 38, 6);
+        ctx.fillRect(4, 28, 38, 6);
+
+        let pct = struct.hp / struct.maxHp;
+        ctx.fillStyle = 'rgba(0,0,0,0.8)';
+        ctx.fillRect(4, 4, 38, 5);
+        ctx.fillStyle = pct > 0.4 ? '#f1c40f' : '#e74c3c';
+        ctx.fillRect(5, 5, 36 * pct, 3);
+      } else if (struct.type === 'Door') {
+        ctx.fillStyle = '#8d6e63';
+        ctx.fillRect(8, 6, 32, 38);
+        ctx.fillStyle = '#5d4037';
+        ctx.fillRect(10, 8, 28, 34);
+        ctx.fillStyle = '#f1c40f';
+        ctx.fillRect(32, 24, 4, 4);
+
+        let pct = struct.hp / struct.maxHp;
+        ctx.fillStyle = 'rgba(0,0,0,0.8)';
+        ctx.fillRect(4, 0, 38, 5);
+        ctx.fillStyle = pct > 0.4 ? '#f1c40f' : '#e74c3c';
+        ctx.fillRect(5, 1, 36 * pct, 3);
+      } else if (struct.type === 'Boat') {
+        ctx.fillStyle = '#a0522d';
+        ctx.beginPath();
+        ctx.ellipse(24, 26, 20, 10, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#8b4513';
+        ctx.fillRect(8, 20, 32, 6);
+      }
+
+      ctx.restore();
+    }
+
+    function drawForestRock(drawX, drawY) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+      ctx.beginPath();
+      ctx.ellipse(drawX + 24, drawY + 38, 20, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#3a3d40';
+      ctx.beginPath();
+      ctx.moveTo(drawX + 8, drawY + 36);
+      ctx.lineTo(drawX + 4, drawY + 22);
+      ctx.lineTo(drawX + 12, drawY + 12);
+      ctx.lineTo(drawX + 28, drawY + 10);
+      ctx.lineTo(drawX + 42, drawY + 18);
+      ctx.lineTo(drawX + 44, drawY + 34);
+      ctx.lineTo(drawX + 32, drawY + 40);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = '#5c6066';
+      ctx.beginPath();
+      ctx.moveTo(drawX + 10, drawY + 34);
+      ctx.lineTo(drawX + 6, drawY + 22);
+      ctx.lineTo(drawX + 14, drawY + 14);
+      ctx.lineTo(drawX + 27, drawY + 12);
+      ctx.lineTo(drawX + 39, drawY + 20);
+      ctx.lineTo(drawX + 40, drawY + 32);
+      ctx.lineTo(drawX + 30, drawY + 38);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    function drawGroundItem(item, screenX, screenY) {
+      let hoverOffset = Math.sin(Date.now() / 250 + item.floatSeed) * 4;
+      let drawY = screenY + hoverOffset;
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath();
+      ctx.ellipse(screenX + 10, screenY + 14, 8, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.font = '18px sans-serif';
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'center';
+      ctx.fillText(item.icon, screenX + 10, drawY + 6);
+      ctx.restore();
+    }
+
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const cameraX = player.x - canvas.width / 2 + DRAW_TILE_SIZE / 2;
+      const cameraY = player.y - canvas.height / 2 + DRAW_TILE_SIZE / 2;
+
+      const startTileX = Math.floor(cameraX / DRAW_TILE_SIZE) - 2;
+      const endTileX = Math.ceil((cameraX + canvas.width) / DRAW_TILE_SIZE) + 2;
+      const startTileY = Math.floor(cameraY / DRAW_TILE_SIZE) - 3;
+      const endTileY = Math.ceil((cameraY + canvas.height) / DRAW_TILE_SIZE) + 2;
+
+      for (let tx = startTileX; tx <= endTileX; tx++) {
+        for (let ty = startTileY; ty <= endTileY; ty++) {
+          let tile = getTile(tx, ty);
+          let drawX = Math.floor(tx * DRAW_TILE_SIZE - cameraX);
+          let drawY = Math.floor(ty * DRAW_TILE_SIZE - cameraY);
+
+          ctx.fillStyle = tile.color;
+          ctx.fillRect(drawX, drawY, DRAW_TILE_SIZE + 1, DRAW_TILE_SIZE + 1);
+
+          if (tile === BIOMES.WATER && pseudoRandom(tx, ty) > 0.5) {
+            ctx.fillStyle = '#5b92e5';
+            ctx.fillRect(drawX + 8, drawY + 16, 14, 3);
+            ctx.fillRect(drawX + 26, drawY + 30, 10, 3);
+          }
+        }
+      }
+
+      let renderQueue = [];
+
+      renderQueue.push({
+        y: player.y + DRAW_TILE_SIZE,
+        draw: () => {
+          const playerScreenX = Math.floor(player.x - cameraX);
+          const playerScreenY = Math.floor(player.y - cameraY);
+          drawPlayerObject(player, playerScreenX, playerScreenY);
+        }
+      });
+
+      Object.values(remotePlayers).forEach(rp => {
+        renderQueue.push({
+          y: rp.y + DRAW_TILE_SIZE,
+          draw: () => {
+            const rScreenX = Math.floor(rp.x - cameraX);
+            const rScreenY = Math.floor(rp.y - cameraY);
+            drawPlayerObject(rp, rScreenX, rScreenY);
+          }
+        });
+      });
+
+      animals.forEach(a => {
+        renderQueue.push({
+          y: a.y + 16,
+          draw: () => {
+            let screenX = Math.floor(a.x - cameraX);
+            let screenY = Math.floor(a.y - cameraY);
+            drawAnimal(a, screenX, screenY);
+          }
+        });
+      });
+
+      Object.keys(structures).forEach(key => {
+        let s = structures[key];
+        renderQueue.push({
+          y: s.y + (s.type === 'Boat' ? 0 : DRAW_TILE_SIZE),
+          draw: () => {
+            let screenX = Math.floor(s.x - cameraX);
+            let screenY = Math.floor(s.y - cameraY);
+            drawStructure(s, screenX, screenY);
+          }
+        });
+      });
+
+      worldItems.forEach(item => {
+        renderQueue.push({
+          y: item.y + 10,
+          draw: () => {
+            let screenX = Math.floor(item.x - cameraX);
+            let screenY = Math.floor(item.y - cameraY);
+            drawGroundItem(item, screenX, screenY);
+          }
+        });
+      });
+
+      for (let tx = startTileX; tx <= endTileX; tx++) {
+        for (let ty = startTileY; ty <= endTileY; ty++) {
+          let nodeKey = `${tx},${ty}`;
+
+          let tile = getTile(tx, ty);
+          let rawX = Math.floor(tx * DRAW_TILE_SIZE - cameraX);
+          let drawY = Math.floor(ty * DRAW_TILE_SIZE - cameraY);
+          let rand = pseudoRandom(tx, ty);
+          let worldY = ty * DRAW_TILE_SIZE + DRAW_TILE_SIZE;
+
+          let isTree = (tile === BIOMES.FOREST && rand < 0.28) || (tile === BIOMES.PLAINS && rand > 0.92);
+          let isRock = (tile === BIOMES.MOUNTAIN && rand < 0.40) || (tile === BIOMES.PLAINS && rand < 0.05);
+
+          if (isTree && !destroyedTrees.has(nodeKey)) {
+            let shakeX = 0;
+            if (treeHealth[nodeKey] && treeHealth[nodeKey].shake > 0) {
+              treeHealth[nodeKey].shake--;
+              shakeX = Math.sin(treeHealth[nodeKey].shake * 1.5) * 4;
+            }
+            let drawX = rawX + shakeX;
+
+            renderQueue.push({
+              y: worldY,
+              draw: () => {
+                ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                ctx.beginPath();
+                ctx.ellipse(drawX + 24, drawY + 42, 20, 7, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = '#26170d';
+                ctx.fillRect(drawX + 18, drawY + 15, 12, 30);
+
+                ctx.fillStyle = '#184518';
+                ctx.beginPath();
+                ctx.moveTo(drawX + 24, drawY - 10);
+                ctx.lineTo(drawX - 8, drawY + 25);
+                ctx.lineTo(drawX + 56, drawY + 25);
+                ctx.fill();
+
+                ctx.fillStyle = '#236123';
+                ctx.beginPath();
+                ctx.moveTo(drawX + 24, drawY - 35);
+                ctx.lineTo(drawX - 2, drawY + 5);
+                ctx.lineTo(drawX + 50, drawY + 5);
+                ctx.fill();
+
+                ctx.fillStyle = '#2f7a2f';
+                ctx.beginPath();
+                ctx.moveTo(drawX + 24, drawY - 55);
+                ctx.lineTo(drawX + 4, drawY - 15);
+                ctx.lineTo(drawX + 44, drawY - 15);
+                ctx.fill();
+
+                if (treeHealth[nodeKey] && treeHealth[nodeKey].hp < treeHealth[nodeKey].maxHp) {
+                  let pct = Math.max(0, treeHealth[nodeKey].hp / treeHealth[nodeKey].maxHp);
+                  ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+                  ctx.fillRect(drawX + 4, drawY - 65, 40, 6);
+                  ctx.fillStyle = '#2ecc71';
+                  ctx.fillRect(drawX + 5, drawY - 64, 38 * pct, 4);
+                }
+              }
+            });
+          } else if (isRock && !destroyedRocks.has(nodeKey)) {
+            let shakeX = 0;
+            if (rockHealth[nodeKey] && rockHealth[nodeKey].shake > 0) {
+              rockHealth[nodeKey].shake--;
+              shakeX = Math.sin(rockHealth[nodeKey].shake * 1.5) * 4;
+            }
+            let drawX = rawX + shakeX;
+
+            renderQueue.push({
+              y: worldY,
+              draw: () => {
+                drawForestRock(drawX, drawY);
+
+                if (rockHealth[nodeKey] && rockHealth[nodeKey].hp < rockHealth[nodeKey].maxHp) {
+                  let pct = Math.max(0, rockHealth[nodeKey].hp / rockHealth[nodeKey].maxHp);
+                  ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+                  ctx.fillRect(drawX + 4, drawY, 40, 6);
+                  ctx.fillStyle = '#e67e22';
+                  ctx.fillRect(drawX + 5, drawY + 1, 38 * pct, 4);
+                }
+              }
+            });
+          }
+        }
+      }
+
+      renderQueue.sort((a, b) => a.y - b.y);
+      renderQueue.forEach(item => item.draw());
+
+      projectiles.forEach(p => {
+        let px = Math.floor(p.x - cameraX);
+        let py = Math.floor(p.y - cameraY);
+        ctx.fillStyle = '#ffd700';
+        ctx.fillRect(px - 2, py - 2, 4, 4);
+      });
+
+      let cycleProgress = (gameTicks % CYCLE_LENGTH) / CYCLE_LENGTH;
+      let nightAlpha = 0;
+
+      if (cycleProgress > 0.45 && cycleProgress <= 0.55) {
+        nightAlpha = (cycleProgress - 0.45) * 6.5;
+      } else if (cycleProgress > 0.55 && cycleProgress <= 0.9) {
+        nightAlpha = 0.65;
+      } else if (cycleProgress > 0.9) {
+        nightAlpha = (1 - cycleProgress) * 6.5;
+      }
+
+      if (nightAlpha > 0) {
+        ctx.fillStyle = `rgba(5, 10, 35, ${Math.min(0.68, nightAlpha)})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+    }
+
+    function gameLoop() {
+      update();
+      render();
+      requestAnimationFrame(gameLoop);
+    }
+
+    updateInventoryUI();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
